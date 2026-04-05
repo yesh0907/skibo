@@ -1,10 +1,16 @@
 {
   "name": "skibo",
-  "module": "index.ts",
   "type": "module",
   "private": true,
+  "scripts": {
+    "dev": "wrangler dev",
+    "check": "wrangler check",
+    "types:cf": "wrangler types"
+  },
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/bun": "latest",
+    "typescript": "^5.8.3",
+    "wrangler": "^4.39.0"
   },
   "peerDependencies": {
     "typescript": "^5"

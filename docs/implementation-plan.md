@@ -2,13 +2,18 @@
 
 ## Status
 
-- Current phase: Planning
-- Current focus: define and execute the Phase 0 Durable Object spike
+- Current phase: Phase 0 setup
+- Current focus: implement the first local Durable Object spike by hand
 - Progress:
   - established project goals and collaboration model
   - chose a CLI-first architecture
   - decided on one Durable Object per game
   - outlined the phased implementation plan
+  - defined the first learning slice as a local HTTP-only Durable Object spike
+  - chose a minimal room model: `gameId`, `status`, `players`, `turnIndex`
+  - decided the Worker generates `gameId` and addresses rooms with `getByName(gameId)`
+  - decided room state should be loaded from storage or initialized lazily
+  - scaffolded Worker routes and shared room types around a hand-written `GameRoomDO`
 
 ## Working Agreement
 
@@ -523,11 +528,18 @@ For this project, a good mental shortcut is:
 
 ## Immediate Next Step
 
-The next concrete planning step should be to define:
+The next concrete implementation step is to hand-write:
 
-- the minimal phase-0 room state and placeholder turn action
-- the first version of the Worker routes for `create`, `join`, `start`, and `passTurn`
-- the first public methods on `GameRoomDO`
-- the event shape for HTTP responses and WebSocket updates
+- `wrangler.jsonc` with the `GAME_ROOM` Durable Object binding and first migration
+- `GameRoomDO.getState()` with load-or-initialize storage behavior
+- `GameRoomDO.join()`
+- `GameRoomDO.start()`
+- `GameRoomDO.passTurn()`
 
-Once that is in place, we can implement Phase 0, prove the DO shape end to end, and then move into the full `GameState`, `PlayerState`, and `Move` model for Phase 1.
+Supporting scaffolding already exists for the first local spike:
+
+- `src/shared/room-state.ts`
+- `src/worker/index.ts`
+- `src/worker/game-room-do.ts`
+
+After that, run the spike locally with `wrangler dev` and verify the `create`, `join`, `start`, `pass-turn`, and `state` HTTP flow end to end.

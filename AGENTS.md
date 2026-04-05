@@ -93,3 +93,10 @@ Run with `bun --hot ./index.ts`.
 
 - This project includes the `cloudflare_docs` MCP server in `opencode.json`.
 - When you need current Cloudflare product or API documentation, use `cloudflare_docs`.
+
+# Collaboration Notes
+
+- Teach concisely and prefer explanation tied to the next hands-on step.
+- Do not overuse comprehension-check questions; ask them mainly at real design forks or to verify progress.
+- Once the core concept is clear, set up a minimal learning environment so the user can implement the interesting parts directly.
+- Keep the user focused on Durable Objects and game logic; absorb scaffolding and glue code where helpful.
