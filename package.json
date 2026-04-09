@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "wrangler dev",
-    "check": "wrangler check",
+    "check": "wrangler types --check && tsc --noEmit",
+    "test": "bun test",
     "types:cf": "wrangler types"
   },
   "devDependencies": {

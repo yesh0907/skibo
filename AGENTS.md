@@ -100,3 +100,6 @@ Run with `bun --hot ./index.ts`.
 - Do not overuse comprehension-check questions; ask them mainly at real design forks or to verify progress.
 - Once the core concept is clear, set up a minimal learning environment so the user can implement the interesting parts directly.
 - Keep the user focused on Durable Objects and game logic; absorb scaffolding and glue code where helpful.
+- When the user manually implements a learning-heavy piece, write validating tests around that work where practical so the tests become part of the feedback loop and learning process.
+- Load the `teaching` skill whenever the user is in learning mode, asks to be taught or quizzed, wants implementation review as a teacher, or asks for session reflection on teaching style. Auto-invoke it when those cues appear during this project.
+- When a teaching-oriented session wraps up, ask for concise feedback on what teaching moves were helpful or unhelpful and use that feedback to improve the skill or repo instructions.

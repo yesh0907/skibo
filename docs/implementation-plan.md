@@ -2,8 +2,8 @@
 
 ## Status
 
-- Current phase: Phase 0 setup
-- Current focus: implement the first local Durable Object spike by hand
+- Current phase: Phase 0 Durable Object spike
+- Current focus: verify the first local Durable Object spike end to end through the Worker HTTP flow
 - Progress:
   - established project goals and collaboration model
   - chose a CLI-first architecture
@@ -14,6 +14,10 @@
   - decided the Worker generates `gameId` and addresses rooms with `getByName(gameId)`
   - decided room state should be loaded from storage or initialized lazily
   - scaffolded Worker routes and shared room types around a hand-written `GameRoomDO`
+  - added `wrangler.jsonc` with the `GAME_ROOM` binding and first DO migration
+  - hand-wrote `GameRoomDO.getState()`, `join()`, `start()`, and `passTurn()`
+  - refactored the room to hydrate from DO storage, persist valid transitions, and use `ctx.id.name` for the public `gameId`
+  - added validating Bun tests around the room lifecycle and used them as part of the learning loop
 
 ## Working Agreement
 
@@ -528,18 +532,19 @@ For this project, a good mental shortcut is:
 
 ## Immediate Next Step
 
-The next concrete implementation step is to hand-write:
+The next concrete implementation step is to verify the first local Durable Object spike end to end through the Worker HTTP slice:
 
-- `wrangler.jsonc` with the `GAME_ROOM` Durable Object binding and first migration
-- `GameRoomDO.getState()` with load-or-initialize storage behavior
-- `GameRoomDO.join()`
-- `GameRoomDO.start()`
-- `GameRoomDO.passTurn()`
+- run the local Worker with `wrangler dev`
+- verify `POST /api/games` creates a room and returns the generated `gameId`
+- verify `POST /api/games/:gameId/join` updates the room through the Worker boundary
+- verify `POST /api/games/:gameId/start` and `POST /api/games/:gameId/pass-turn` update durable room state correctly
+- verify `GET /api/games/:gameId/state` returns the latest reconnect snapshot
 
 Supporting scaffolding already exists for the first local spike:
 
 - `src/shared/room-state.ts`
 - `src/worker/index.ts`
 - `src/worker/game-room-do.ts`
+- `src/tests/game-room-do.test.ts`
 
-After that, run the spike locally with `wrangler dev` and verify the `create`, `join`, `start`, `pass-turn`, and `state` HTTP flow end to end.
+Once that local HTTP flow works, the remaining Phase 0 gap is the tiny CLI path that can exercise the same room end to end.
