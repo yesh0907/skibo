@@ -2,8 +2,8 @@
 
 ## Status
 
-- Current phase: Phase 0 Durable Object spike
-- Current focus: verify the first local Durable Object spike end to end through the Worker HTTP flow
+- Current phase: Phase 1 Core Game Engine
+- Current focus: keep the pure engine snapshot-based and grow the official Skip-Bo rule surface from the first tested `playCard` / `discardCard` command loop
 - Progress:
   - established project goals and collaboration model
   - chose a CLI-first architecture
@@ -18,6 +18,15 @@
   - hand-wrote `GameRoomDO.getState()`, `join()`, `start()`, and `passTurn()`
   - refactored the room to hydrate from DO storage, persist valid transitions, and use `ctx.id.name` for the public `gameId`
   - added validating Bun tests around the room lifecycle and used them as part of the learning loop
+  - verified the local Worker HTTP flow end to end through `wrangler dev` for `create`, `join`, `start`, `pass-turn`, and `state`
+  - scaffolded a tiny Bun CLI path with `create`, `join`, `start`, `pass-turn`, and `state` commands for the local room spike
+  - replaced the early class-heavy engine draft with snapshot-based `GameState`, `PlayerState`, command, and effect shapes
+  - clarified the design split between canonical game state, internal engine resolution flow, visible effects, and derived available actions
+  - implemented the first pure `resolveCommand(...)` loop for `playCard` and `discardCard`
+  - normalized discard resolution so ending a turn advances to the next player and resolves that player's draw before returning
+  - added Bun coverage for hand, discard-pile, and stock-pile play paths, game-over on empty stock pile, refill-from-deck, build-pile resolution, discard turn wraparound, and an invalid empty-build-pile play
+  - hardened the engine contract around invalid discard-pile and build-pile indexes while keeping returned snapshots immutable
+  - validated wild-card continuation behavior and confirmed the first command loop is a natural stopping point before broadening into more official-rule coverage
 
 ## Working Agreement
 
@@ -532,19 +541,19 @@ For this project, a good mental shortcut is:
 
 ## Immediate Next Step
 
-The next concrete implementation step is to verify the first local Durable Object spike end to end through the Worker HTTP slice:
+The next concrete implementation step is to broaden Phase 1 beyond the first command loop:
 
-- run the local Worker with `wrangler dev`
-- verify `POST /api/games` creates a room and returns the generated `gameId`
-- verify `POST /api/games/:gameId/join` updates the room through the Worker boundary
-- verify `POST /api/games/:gameId/start` and `POST /api/games/:gameId/pass-turn` update durable room state correctly
-- verify `GET /api/games/:gameId/state` returns the latest reconnect snapshot
+- choose the next official-rule slice that is still missing from the current engine model rather than inventing a third player command
+- likely next areas are broader Skip-Bo rule coverage, stronger setup invariants, and any player-identity facts needed before reintegrating more deeply with the multiplayer shell
+- keep the returned `GameState` canonical while effects narrate user-visible resolution steps
+- continue treating the engine as pure Worker-independent logic under `bun test`
 
-Supporting scaffolding already exists for the first local spike:
+Supporting scaffolding now exists for the completed Phase 0 spike:
 
 - `src/shared/room-state.ts`
 - `src/worker/index.ts`
 - `src/worker/game-room-do.ts`
 - `src/tests/game-room-do.test.ts`
+- `src/cli/index.ts`
 
-Once that local HTTP flow works, the remaining Phase 0 gap is the tiny CLI path that can exercise the same room end to end.
+That gives us a working reference boundary for the Durable Object spike, so the next learning-heavy work can stay focused on pure game rules.
