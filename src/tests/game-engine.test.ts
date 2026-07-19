@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { copyGameState, createGameState } from "../shared/game-state";
 import type { Command } from "../shared/command";
-import { resolveCommand } from "../shared/game-engine";
+import { getLegalCommands, resolveCommand } from "../shared/game-engine";
 import { WILD_CARD } from "../shared/deck";
 
 describe("GameEngine", () => {
@@ -42,6 +42,7 @@ describe("GameEngine", () => {
 
   test("playing a card from the top of a discard pile", () => {
     const gameState = createGameState(["player1", "player2"]);
+    gameState.players[0]!.cardsInHand = [6];
     gameState.players[0]!.discardPiles = [[], [4, 5], [], []];
     gameState.buildPiles[0] = [1, 2, 3, 4];
 
@@ -179,6 +180,7 @@ describe("GameEngine", () => {
     const gameState = createGameState(["player1", "player2"]);
     gameState.players[0]!.cardsInHand = [5, 3, 2, 12, 7];
     gameState.players[1]!.cardsInHand = [9, 10, 3, 11];
+    gameState.players[1]!.stockPile = [1];
 
     const gameStateCopy = copyGameState(gameState);
     const discardCardCommand: Command = {
@@ -468,5 +470,150 @@ describe("GameEngine", () => {
     const { nextState } = resolveCommand(playTwoCommand, afterWildState);
 
     expect(nextState.buildPiles[0]).toEqual([WILD_CARD, 2]);
+  });
+
+  test("rejects skipping the build pile sequence after a wild card", () => {
+    const gameState = createGameState(["player1", "player2"]);
+    gameState.players[0]!.cardsInHand = [4];
+    gameState.buildPiles[0] = [1, WILD_CARD];
+
+    const playCardCommand: Command = {
+      type: "playCard",
+      cardValue: 4,
+      source: {
+        type: "hand",
+        index: 0,
+      },
+      destinationIndex: 0,
+    };
+
+    expect(() => resolveCommand(playCardCommand, gameState)).toThrow(
+      "Card played must match the next build pile value",
+    );
+  });
+
+  test("calculates exact legal commands from every playable source", () => {
+    const gameState = createGameState(["player1", "player2"]);
+    gameState.players[0]!.cardsInHand = [3, 8];
+    gameState.players[0]!.stockPile = [9, 2];
+    gameState.players[0]!.discardPiles = [[7, WILD_CARD], [], [1], []];
+    gameState.buildPiles = [[1, 2], [], [1], [1, 2, 3, 4]];
+
+    const legalCommands = getLegalCommands(gameState);
+    const playCommands = legalCommands.filter(
+      (command) => command.type === "playCard",
+    );
+    const discardCommands = legalCommands.filter(
+      (command) => command.type === "discardCard",
+    );
+
+    for (const command of legalCommands) {
+      expect(() => resolveCommand(command, gameState)).not.toThrow();
+    }
+
+    expect(playCommands).toEqual([
+      {
+        type: "playCard",
+        cardValue: 3,
+        source: { type: "hand", index: 0 },
+        destinationIndex: 0,
+      },
+      {
+        type: "playCard",
+        cardValue: WILD_CARD,
+        source: { type: "discardPile", index: 0 },
+        destinationIndex: 0,
+      },
+      {
+        type: "playCard",
+        cardValue: WILD_CARD,
+        source: { type: "discardPile", index: 0 },
+        destinationIndex: 1,
+      },
+      {
+        type: "playCard",
+        cardValue: WILD_CARD,
+        source: { type: "discardPile", index: 0 },
+        destinationIndex: 2,
+      },
+      {
+        type: "playCard",
+        cardValue: WILD_CARD,
+        source: { type: "discardPile", index: 0 },
+        destinationIndex: 3,
+      },
+      {
+        type: "playCard",
+        cardValue: 1,
+        source: { type: "discardPile", index: 2 },
+        destinationIndex: 1,
+      },
+      {
+        type: "playCard",
+        cardValue: 2,
+        source: { type: "stockPile" },
+        destinationIndex: 2,
+      },
+    ]);
+    expect(discardCommands).toHaveLength(8);
+  });
+
+  test("available actions omit playCard when no source can be played", () => {
+    const gameState = createGameState(["player1", "player2"]);
+    gameState.players[0]!.cardsInHand = [6];
+    gameState.players[1]!.cardsInHand = [7, 7, 7, 7, 7];
+    gameState.players[1]!.stockPile = [8];
+    gameState.players[1]!.discardPiles = [[9], [], [], []];
+    gameState.buildPiles = [[], [], [], []];
+
+    const command: Command = {
+      type: "discardCard",
+      cardValue: 6,
+      source: { type: "hand", index: 0 },
+      discardPileIndex: 0,
+    };
+
+    const { availableActions } = resolveCommand(command, gameState);
+
+    expect(availableActions).toEqual(["discardCard"]);
+  });
+
+  test("a game-over state has no legal commands", () => {
+    const gameState = createGameState(["player1", "player2"]);
+    gameState.isGameOver = true;
+
+    expect(getLegalCommands(gameState)).toEqual([]);
+  });
+
+  test("rejects commands after the game is over", () => {
+    const gameState = createGameState(["player1", "player2"]);
+    gameState.isGameOver = true;
+
+    const command: Command = {
+      type: "playCard",
+      cardValue: gameState.players[0]!.stockPile.at(-1)!,
+      source: { type: "stockPile" },
+      destinationIndex: 0,
+    };
+
+    expect(() => resolveCommand(command, gameState)).toThrow(
+      "Cannot resolve a command after the game is over",
+    );
+  });
+
+  test("rejects negative hand indexes", () => {
+    const gameState = createGameState(["player1", "player2"]);
+    gameState.players[0]!.cardsInHand = [1];
+
+    const command: Command = {
+      type: "playCard",
+      cardValue: 1,
+      source: { type: "hand", index: -1 },
+      destinationIndex: 0,
+    };
+
+    expect(() => resolveCommand(command, gameState)).toThrow(
+      "Card not found in hand",
+    );
   });
 });

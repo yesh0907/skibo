@@ -3,7 +3,7 @@
 ## Status
 
 - Current phase: Phase 1 Core Game Engine
-- Current focus: keep the pure engine snapshot-based and grow the official Skip-Bo rule surface from the first tested `playCard` / `discardCard` command loop
+- Current focus: finish the pure engine as the authoritative rules core, then integrate it into the Durable Object and CLI
 - Progress:
   - established project goals and collaboration model
   - chose a CLI-first architecture
@@ -27,6 +27,11 @@
   - added Bun coverage for hand, discard-pile, and stock-pile play paths, game-over on empty stock pile, refill-from-deck, build-pile resolution, discard turn wraparound, and an invalid empty-build-pile play
   - hardened the engine contract around invalid discard-pile and build-pile indexes while keeping returned snapshots immutable
   - validated wild-card continuation behavior and confirmed the first command loop is a natural stopping point before broadening into more official-rule coverage
+  - tightened build-pile validation so wild cards stand in for the next sequence position instead of allowing arbitrary later numeric cards
+  - shifted the collaboration model from manual learning-first implementation to agent-led delivery with explicit `$teach` interludes
+  - added exact legal-command calculation across hand, stock, and discard-pile sources and made it the final command-validation gate
+  - derived broad available-action categories from exact legal commands instead of returning them unconditionally
+  - rejected commands after game over and closed negative-index command validation gaps
 
 ## Working Agreement
 
@@ -36,27 +41,24 @@
 
 ## Goals
 
-- Prioritize learning over product polish
-- Learn Cloudflare Durable Objects by building a real multiplayer system
+- Build a correct, playable multiplayer Skip-Bo game quickly with agentic coding tools
 - Build Skip-Bo in a way that keeps the core game rules separate from infrastructure
 - Start with a CLI client so we can iterate quickly without UI overhead
 - Preserve an easy path to a future web app
-- Keep the interesting, high-learning parts manual and use the agent mainly to remove project friction
+- Use focused `$teach` sessions when the user wants to understand completed work or an upcoming design
 
-## Learning Priorities
+## Delivery Priorities
 
 In order of importance:
 
-1. Learn the Durable Object model firsthand
-2. Implement the core Skip-Bo rules manually
-3. Keep the client/server and Worker/DO boundaries visible
-4. Avoid spending early cycles on product polish or UI work
+1. Complete and verify the pure Skip-Bo rules engine
+2. Integrate the engine into one authoritative Durable Object per game
+3. Deliver a playable networked CLI loop with live updates and reconnect support
+4. Keep client/server and Worker/DO boundaries explicit and testable
 
 ## Focus Rule
 
-Prefer the smallest step that teaches the next important concept.
-
-For this project, that means we should not jump straight to a fully finished multiplayer game if a smaller end-to-end slice would teach the same Cloudflare concept more clearly.
+Prefer the smallest complete, tested slice that advances the playable multiplayer loop.
 
 ## Product Direction
 
@@ -71,16 +73,16 @@ That means:
 
 This gives us fast iteration while still teaching the important Cloudflare concepts.
 
-The first milestone should be a thin vertical slice, not a complete polished game.
+The first milestone was a thin vertical slice, not a complete polished game.
 
-That first slice should prove:
+That first slice proved:
 
 - Worker routes can create and address a game room
 - one Durable Object can coordinate a single game
-- a CLI client can join and observe updates
+- a CLI client can exercise the room through HTTP commands
 - state survives beyond a single request
 
-Once that slice is working, we can safely expand into the full official ruleset.
+With that slice working, the current focus is expanding into the full official ruleset.
 
 ## Why Durable Objects Fit
 
@@ -282,12 +284,12 @@ The `GameRoomDO` should handle:
 
 ## Storage Strategy
 
-For the learning-focused first version, use a simple storage shape:
+For the first version, use a simple storage shape:
 
 - one current game snapshot
 - optional move log after the core loop works
 
-This keeps the implementation easy to reason about while still teaching:
+This keeps the implementation easy to reason about while supporting:
 
 - durable persistence
 - rehydration after eviction
@@ -307,7 +309,7 @@ The testing plan should match the runtime boundary.
 
 This is important because the pure engine can run anywhere, but Durable Object behavior depends on the Cloudflare runtime.
 
-## Learning Checkpoints
+## Delivery Checkpoints
 
 Each phase should leave behind a runnable checkpoint.
 
@@ -330,25 +332,6 @@ Build:
 - `create`, `join`, `start`, and `passTurn` or placeholder action
 - a tiny CLI path that can exercise the room end to end
 
-You should do:
-
-- DO binding and migration setup
-- the first hand-written Durable Object class
-- basic state persistence in DO storage
-
-I should do:
-
-- minimal repo scaffolding
-- Worker route glue
-- a simple CLI command path to hit the room
-
-What you learn:
-
-- DO lifecycle
-- `getByName(gameId)` addressing
-- Worker to DO boundaries
-- durable state versus in-memory state
-
 ## Phase 1: Core Game Engine
 
 Goal: implement pure TypeScript Skip-Bo rules with no Cloudflare dependency.
@@ -363,23 +346,6 @@ Build:
 - `applyMove`
 - win detection
 
-You should do:
-
-- state modeling
-- core game rules
-- move validation and transitions
-
-I should do:
-
-- test scaffolding
-- edge-case test suggestions
-- review and refinement of the engine shape
-
-What you learn:
-
-- how to model a non-trivial turn-based game cleanly
-- how to keep rules isolated from networking concerns
-
 ## Phase 2: Real Game Durable Object
 
 Goal: wrap one game in one authoritative Durable Object.
@@ -393,24 +359,6 @@ Build:
 - `playMove`
 - `getSnapshot`
 
-You should do:
-
-- the first `GameRoomDO` class
-- state load and save behavior
-- turn enforcement in the DO boundary
-
-I should do:
-
-- route scaffolding around the DO
-- review for Durable Object best practices
-
-What you learn:
-
-- DO lifecycle
-- `getByName(gameId)` addressing
-- durable storage usage
-- why one coordinator per game is powerful
-
 ## Phase 3: Real-Time Transport
 
 Goal: make multiplayer updates live.
@@ -422,24 +370,6 @@ Build:
 - broadcast on game state changes
 - reconnect support
 - if it stays manageable, use the DO hibernation WebSocket API so the project teaches a Cloudflare-specific real-time pattern
-
-You should do:
-
-- WebSocket ownership inside the DO
-- player-to-connection association
-- broadcast flow
-- hibernation-related connection metadata if we opt into it early
-
-I should do:
-
-- CLI-side WebSocket client code
-- transport helpers and glue code
-
-What you learn:
-
-- how DOs combine durable state with in-memory live connections
-- the difference between persisted state and ephemeral session state
-- how WebSocket upgrades differ from normal DO RPC calls
 
 ## Phase 4: CLI UX
 
@@ -454,18 +384,6 @@ Build:
 - `play <move>`
 - live event stream rendering
 
-You should do:
-
-- only the CLI pieces you want practice with
-
-I should do:
-
-- most of the CLI shell and ergonomics
-
-What you learn:
-
-- enough client behavior to understand the end-to-end system without spending most of the time on interface work
-
 ## Phase 5: Hardening
 
 Goal: make the system resilient enough for real playtesting.
@@ -478,48 +396,11 @@ Build:
 - out-of-turn protection
 - tests for reconnect and state recovery
 
-You should do:
+## Collaboration Model
 
-- reconnect semantics
-- player identity decisions
-
-I should do:
-
-- failure-case tests
-- cleanup and implementation polish
-
-What you learn:
-
-- the practical details that make stateful distributed apps actually usable
-
-## You Do / I Do Split
-
-Recommended ownership for the first implementation pass:
-
-You do manually:
-
-- `wrangler.jsonc` Durable Object binding and migration setup
-- the first minimal `GameRoomDO` spike
-- `src/shared/game-engine.ts`
-- `src/worker/game-room-do.ts`
-- state persistence logic in the DO
-- move validation at the authoritative boundary
-- WebSocket registration and broadcast logic
-
-I do:
-
-- initial repo structure
-- shared type stubs where helpful
-- test scaffolding
-- Worker route scaffolding
-- most CLI command plumbing
-- reviews and explanations of your DO code
-
-Why this split:
-
-- you spend time on the highest-value learning areas
-- I absorb the boilerplate and glue code
-- we keep momentum without hiding the important parts from you
+- The agent owns implementation, tests, refactors, documentation, and verification by default.
+- The user sets product direction and weighs in at meaningful architecture or game-rule forks.
+- Explicit `$teach` requests pause delivery for a focused lesson grounded in the current code.
 
 ## Important Cloudflare Lesson To Reinforce
 
@@ -541,12 +422,13 @@ For this project, a good mental shortcut is:
 
 ## Immediate Next Step
 
-The next concrete implementation step is to broaden Phase 1 beyond the first command loop:
+The next concrete implementation step is to finish Phase 1:
 
-- choose the next official-rule slice that is still missing from the current engine model rather than inventing a third player command
-- likely next areas are broader Skip-Bo rule coverage, stronger setup invariants, and any player-identity facts needed before reintegrating more deeply with the multiplayer shell
-- keep the returned `GameState` canonical while effects narrate user-visible resolution steps
-- continue treating the engine as pure Worker-independent logic under `bun test`
+- enforce game-state and setup invariants
+- define deck-exhaustion and commands-after-game-over behavior
+- complete official turn-transition and win-condition coverage
+- add a local simulation that exercises the engine through complete games
+- use exact legal commands as the shared source for validation and client choices
 
 Supporting scaffolding now exists for the completed Phase 0 spike:
 

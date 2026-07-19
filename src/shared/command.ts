@@ -1,13 +1,13 @@
 import type { CardInHandSource, PlayCardSource } from "./types";
 
-type PlayCardCommand = {
+export type PlayCardCommand = {
   type: "playCard";
   cardValue: number;
   source: PlayCardSource;
   destinationIndex: number;
 };
 
-type DiscardCardCommand = {
+export type DiscardCardCommand = {
   type: "discardCard";
   cardValue: number;
   source: CardInHandSource;

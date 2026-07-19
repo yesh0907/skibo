@@ -1,9 +1,10 @@
 # Project Priorities
 
-- This repo is a learning-first experiment in building with a coding agent
-- The user should manually implement the high-learning parts, especially Durable Objects, core game mechanics, and other technically interesting pieces
-- The agent should mainly handle scaffolding, glue code, reviews, and other low-leverage project friction
-- Prefer the smallest end-to-end step that teaches the next important Cloudflare or game-design concept
+- Build a correct, playable multiplayer Skip-Bo implementation quickly using agentic coding tools
+- The agent should own implementation, tests, refactors, documentation, and verification by default
+- Prefer small, complete, well-tested slices that move the project toward an end-to-end playable game
+- Explain consequential architecture and domain decisions, but do not pause routine implementation for teaching
+- When the user explicitly invokes `$teach`, pause implementation and use the teaching workspace workflow to explain the requested concept
 - Use `docs/implementation-plan.md` as the source of truth for current scope, phase, and progress
 - Treat `docs/implementation-plan.md` as a living document: update progress as work is completed, then commit code and plan updates together when requested
 
@@ -96,10 +97,8 @@ Run with `bun --hot ./index.ts`.
 
 # Collaboration Notes
 
-- Teach concisely and prefer explanation tied to the next hands-on step.
-- Do not overuse comprehension-check questions; ask them mainly at real design forks or to verify progress.
-- Once the core concept is clear, set up a minimal learning environment so the user can implement the interesting parts directly.
-- Keep the user focused on Durable Objects and game logic; absorb scaffolding and glue code where helpful.
-- When the user manually implements a learning-heavy piece, write validating tests around that work where practical so the tests become part of the feedback loop and learning process.
-- Load the `teaching` skill whenever the user is in learning mode, asks to be taught or quizzed, wants implementation review as a teacher, or asks for session reflection on teaching style. Auto-invoke it when those cues appear during this project.
-- When a teaching-oriented session wraps up, ask for concise feedback on what teaching moves were helpful or unhelpful and use that feedback to improve the skill or repo instructions.
+- Default to autonomous implementation and verification once scope is clear.
+- Surface genuine product or architecture forks; make conservative implementation decisions for routine details.
+- Keep game rules in the pure engine and infrastructure concerns at the Worker and Durable Object boundaries.
+- Use tests as the primary correctness feedback loop.
+- Treat explicit `$teach` requests as focused learning interludes grounded in the work just completed.
