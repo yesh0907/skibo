@@ -32,6 +32,10 @@
   - added exact legal-command calculation across hand, stock, and discard-pile sources and made it the final command-validation gate
   - derived broad available-action categories from exact legal commands instead of returning them unconditionally
   - rejected commands after game over and closed negative-index command validation gaps
+  - enforced setup invariants for player rosters, official stock-pile defaults, short-game variants, and deck feasibility
+  - added structural game-state validation for card values, pile shapes, hand size, build sequence, turn index, and game-over consistency
+  - applied invariant checks at game creation and both sides of engine transitions
+  - kept terminal snapshots canonical when a winning stock card also completes a build pile
 
 ## Working Agreement
 
@@ -45,7 +49,8 @@
 - Build Skip-Bo in a way that keeps the core game rules separate from infrastructure
 - Start with a CLI client so we can iterate quickly without UI overhead
 - Preserve an easy path to a future web app
-- Use focused `$teach` sessions when the user wants to understand completed work or an upcoming design
+- Produce a concise `$teach` artifact after each completed implementation slice
+- Use deeper `$teach` sessions when the user wants to explore completed work or an upcoming design
 
 ## Delivery Priorities
 
@@ -400,7 +405,8 @@ Build:
 
 - The agent owns implementation, tests, refactors, documentation, and verification by default.
 - The user sets product direction and weighs in at meaningful architecture or game-rule forks.
-- Explicit `$teach` requests pause delivery for a focused lesson grounded in the current code.
+- Each completed implementation slice ends with a concise technical `$teach` artifact.
+- Explicit `$teach` requests pause delivery for a deeper lesson grounded in the current code.
 
 ## Important Cloudflare Lesson To Reinforce
 
@@ -424,7 +430,6 @@ For this project, a good mental shortcut is:
 
 The next concrete implementation step is to finish Phase 1:
 
-- enforce game-state and setup invariants
 - define deck-exhaustion and commands-after-game-over behavior
 - complete official turn-transition and win-condition coverage
 - add a local simulation that exercises the engine through complete games

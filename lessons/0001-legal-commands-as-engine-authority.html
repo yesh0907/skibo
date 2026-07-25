@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Legal Commands as Engine Authority</title>
+    <link rel="stylesheet" href="../assets/lesson.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <div class="kicker">Skip-Bo Engine · Lesson 0001</div>
+        <h1>Legal commands as the engine’s authority</h1>
+        <p class="lead">
+          One calculation now answers both “what may the player do?” and “may
+          this submitted command execute?”
+        </p>
+        <div class="meta">Completed slice: exact legal-command calculation</div>
+      </header>
+
+      <h2>The problem</h2>
+      <p>
+        The engine previously returned the broad actions
+        <code>playCard</code> and <code>discardCard</code> after nearly every
+        command. That did not say which card, source, or destination was legal,
+        and it could disagree with command validation.
+      </p>
+
+      <h2>The new contract</h2>
+      <div class="flow" aria-label="Legal command flow">
+        <div>
+          <strong>1. Enumerate</strong>
+          Inspect the current player’s hand, stock top, discard tops, and all
+          four build piles.
+        </div>
+        <div>
+          <strong>2. Validate</strong>
+          A submitted command must match one exact command in that calculated
+          set before state mutation begins.
+        </div>
+        <div>
+          <strong>3. Derive</strong>
+          Broad UI actions are projected from the exact set, so they cannot
+          claim a play exists when none does.
+        </div>
+      </div>
+
+      <pre><code>GameState
+  → getLegalCommands(state): Command[]
+  → exact membership check
+  → apply command to a copied state
+  → getLegalCommands(nextState)
+  → derive availableActions</code></pre>
+
+      <h2>Why exact commands matter</h2>
+      <p>
+        A command is a TypeScript discriminated union. Its <code>type</code>
+        field narrows the remaining shape: a play has a destination build pile,
+        while a discard has a destination discard pile. Play sources narrow
+        again into hand, stock, or discard pile variants.
+      </p>
+      <p>
+        Because legal choices use the same command shape as submitted input,
+        the CLI, a future browser client, bots, and the Durable Object can all
+        consume one domain-level representation. The clients do not need to
+        reproduce Skip-Bo rules.
+      </p>
+
+      <h2>The rule predicate</h2>
+      <pre><code>cardValue === WILD_CARD ||
+cardValue === buildPile.length + 1</code></pre>
+      <p>
+        Build-pile position determines the next required number. A wild card
+        occupies exactly one position, so a pile <code>[1, wild]</code> expects
+        <code>3</code>, not any arbitrary number. Completed twelve-card piles
+        are resolved and recycled before another command is returned.
+      </p>
+
+      <div class="callout">
+        <strong>Correctness property:</strong> every command returned by
+        <code>getLegalCommands(state)</code> must resolve from that same state,
+        and a terminal state must return no commands and reject execution.
+      </div>
+
+      <h2>Defensive boundary details</h2>
+      <p>
+        JavaScript’s <code>Array.at(-1)</code> intentionally accesses the last
+        element. That is useful for pile tops but dangerous for user-provided
+        indexes: a negative hand index could appear to select the last card
+        without removing it. Explicit non-negative integer bounds now protect
+        indexed command sources and destinations.
+      </p>
+
+      <h2>Retrieve before revealing</h2>
+      <details>
+        <summary>
+          Why derive <code>availableActions</code> instead of storing it in
+          <code>GameState</code>?
+        </summary>
+        <p>
+          It is a deterministic projection of canonical state. Storing it
+          creates another value that can become stale or contradict the piles.
+        </p>
+      </details>
+      <details>
+        <summary>
+          Why does a wild card after <code>[1, 2]</code> represent
+          <code>3</code>?
+        </summary>
+        <p>
+          Build piles advance by position from one through twelve. A wild
+          occupies the next position; it does not erase sequence history.
+        </p>
+      </details>
+      <details>
+        <summary>What should the Durable Object validate later?</summary>
+        <p>
+          Player identity and turn ownership belong at the authoritative
+          multiplayer boundary. Card and pile legality stays in this pure
+          engine.
+        </p>
+      </details>
+
+      <h2>Primary sources</h2>
+      <ul>
+        <li>
+          <a href="https://service.mattel.com/instruction_sheets/42050-0520.pdf"
+            >Mattel’s official Skip-Bo instructions</a
+          >
+          for legal piles, sources, wild cards, and turn behavior.
+        </li>
+        <li>
+          <a
+            href="https://www.typescriptlang.org/docs/handbook/2/narrowing.html"
+            >TypeScript Handbook: Narrowing</a
+          >
+          for discriminated-union behavior.
+        </li>
+        <li>
+          <a href="https://bun.sh/docs/test/writing-tests"
+            >Bun: Writing Tests</a
+          >
+          for the engine’s executable correctness checks.
+        </li>
+      </ul>
+
+      <footer>
+        Review the retrieval prompts after a delay to build storage strength.
+        Ask the agent follow-up questions about any code path or design choice
+        that remains unclear.
+      </footer>
+    </main>
+  </body>
+</html>

@@ -4,7 +4,8 @@
 - The agent should own implementation, tests, refactors, documentation, and verification by default
 - Prefer small, complete, well-tested slices that move the project toward an end-to-end playable game
 - Explain consequential architecture and domain decisions, but do not pause routine implementation for teaching
-- When the user explicitly invokes `$teach`, pause implementation and use the teaching workspace workflow to explain the requested concept
+- After every completed implementation slice, use `$teach` to create a concise technical lesson artifact about the work
+- Treat explicit `$teach` requests as a request for a deeper teaching pause
 - Use `docs/implementation-plan.md` as the source of truth for current scope, phase, and progress
 - Treat `docs/implementation-plan.md` as a living document: update progress as work is completed, then commit code and plan updates together when requested
 
@@ -101,4 +102,5 @@ Run with `bun --hot ./index.ts`.
 - Surface genuine product or architecture forks; make conservative implementation decisions for routine details.
 - Keep game rules in the pure engine and infrastructure concerns at the Worker and Durable Object boundaries.
 - Use tests as the primary correctness feedback loop.
-- Treat explicit `$teach` requests as focused learning interludes grounded in the work just completed.
+- Keep automatic teaching artifacts focused on architecture, behavior, correctness, and tradeoffs; include repo-management details only when technically important.
+- Treat explicit `$teach` requests as deeper learning interludes grounded in the current code.

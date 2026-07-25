@@ -105,6 +105,38 @@ describe("GameEngine", () => {
     expect(availableActions).toEqual([]);
   });
 
+  test("a winning card still resolves a completed build pile", () => {
+    const gameState = createGameState(["player1", "player2"], 10);
+    gameState.players[0]!.stockPile = [12];
+    gameState.buildPiles[0] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
+    gameState.deck = [];
+
+    const command: Command = {
+      type: "playCard",
+      cardValue: 12,
+      source: { type: "stockPile" },
+      destinationIndex: 0,
+    };
+
+    const { nextState, effects } = resolveCommand(command, gameState);
+
+    expect(nextState.isGameOver).toBe(true);
+    expect(nextState.buildPiles[0]).toEqual([]);
+    expect(nextState.deck).toHaveLength(12);
+    expect(effects).toEqual([
+      {
+        type: "cardPlayed",
+        cardValue: 12,
+        source: { type: "stockPile" },
+        destinationIndex: 0,
+      },
+      {
+        type: "buildPileResolved",
+        pileIndex: 0,
+      },
+    ]);
+  });
+
   test("playing the last hand card refills from the deck", () => {
     const gameState = createGameState(["player1", "player2"]);
     gameState.players[0]!.cardsInHand = [WILD_CARD];
@@ -434,7 +466,7 @@ describe("GameEngine", () => {
     };
 
     expect(() => resolveCommand(playCardCommand, gameState)).toThrow(
-      "Stock pile top card must match card played",
+      "A game with an empty stock pile must be over",
     );
   });
 
@@ -580,6 +612,7 @@ describe("GameEngine", () => {
 
   test("a game-over state has no legal commands", () => {
     const gameState = createGameState(["player1", "player2"]);
+    gameState.players[0]!.stockPile = [];
     gameState.isGameOver = true;
 
     expect(getLegalCommands(gameState)).toEqual([]);
@@ -587,11 +620,12 @@ describe("GameEngine", () => {
 
   test("rejects commands after the game is over", () => {
     const gameState = createGameState(["player1", "player2"]);
+    gameState.players[0]!.stockPile = [];
     gameState.isGameOver = true;
 
     const command: Command = {
       type: "playCard",
-      cardValue: gameState.players[0]!.stockPile.at(-1)!,
+      cardValue: WILD_CARD,
       source: { type: "stockPile" },
       destinationIndex: 0,
     };

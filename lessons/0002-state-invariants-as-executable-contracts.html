@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>State Invariants as Executable Contracts</title>
+    <link rel="stylesheet" href="../assets/lesson.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <div class="kicker">Skip-Bo Engine · Lesson 0002</div>
+        <h1>State invariants as executable contracts</h1>
+        <p class="lead">
+          A valid transition is more than a legal command: the snapshot entering
+          and leaving the engine must also represent a possible game.
+        </p>
+        <div class="meta">Completed slice: setup and state invariants</div>
+      </header>
+
+      <h2>Compile-time shape is not runtime truth</h2>
+      <p>
+        The <code>GameState</code> interface tells TypeScript that
+        <code>buildPiles</code> is an array of number arrays. It cannot prove
+        that there are exactly four piles, that the cards are between zero and
+        twelve, or that a persisted snapshot still follows Skip-Bo rules.
+      </p>
+      <p>
+        <code>assertValidGameState(state)</code> is the runtime contract. It
+        returns normally only when all selected invariants hold; otherwise it
+        throws before gameplay logic can trust the snapshot.
+      </p>
+
+      <div class="flow" aria-label="Invariant boundary flow">
+        <div>
+          <strong>Construction</strong>
+          Validate roster and deal feasibility, build the state, then validate
+          the finished snapshot.
+        </div>
+        <div>
+          <strong>Transition input</strong>
+          Reject malformed state before calculating or applying any legal
+          command.
+        </div>
+        <div>
+          <strong>Transition output</strong>
+          Validate the copied next state before returning it to persistence or
+          a client.
+        </div>
+      </div>
+
+      <pre><code>assertValidGameState(input)
+  → validate exact command
+  → copy input
+  → apply and resolve command
+  → assertValidGameState(output)
+  → return canonical snapshot</code></pre>
+
+      <h2>What is enforced</h2>
+      <ul>
+        <li>Two through six uniquely named, nonblank players</li>
+        <li>A valid integer current-player index</li>
+        <li>Exactly four shared build piles and four discards per player</li>
+        <li>Hands of at most five cards</li>
+        <li>Integer card values from zero through twelve</li>
+        <li>Unresolved build piles whose physical cards match each position</li>
+        <li>Agreement between <code>isGameOver</code> and empty stock piles</li>
+      </ul>
+
+      <h2>Official setup versus variants</h2>
+      <p>
+        With no override, setup now deals thirty stock cards for two to four
+        players and twenty for five to six players. An explicit positive stock
+        size still supports Mattel’s shorter-game variants, provided the
+        162-card deck can also deal five hand cards to every player.
+      </p>
+      <div class="callout">
+        <strong>Boundary choice:</strong> exact deck conservation is not yet an
+        invariant. Structural snapshots used by focused tests and future replay
+        tools may intentionally omit unrelated cards. Card-count conservation
+        can be added later at a stricter persistence or audit boundary.
+      </div>
+
+      <h2>Canonicalization before terminal state</h2>
+      <p>
+        A winning stock card may also be the twelve that completes a build
+        pile. Previously, the engine marked the game over first and could leave
+        that completed pile unresolved. The transition now resolves and
+        recycles the pile before returning the terminal snapshot. “Game over”
+        changes which actions remain legal; it does not excuse malformed state.
+      </p>
+
+      <h2>Why validate both sides?</h2>
+      <p>
+        Input validation protects the engine from storage corruption, stale
+        clients, and hand-built fixtures. Output validation protects every
+        downstream consumer from engine bugs. Together they localize failure:
+        an invalid state is detected at the transition that introduced or
+        received it, not several commands later.
+      </p>
+
+      <h2>Retrieve before revealing</h2>
+      <details>
+        <summary>Why is <code>GameState</code> alone insufficient?</summary>
+        <p>
+          TypeScript types disappear at runtime and express broad structure,
+          not rules such as pile count, sequence, or lifecycle consistency.
+        </p>
+      </details>
+      <details>
+        <summary>Why reject a twelve-card build pile in a snapshot?</summary>
+        <p>
+          Twelve completes the pile. A canonical transition must recycle it
+          before exposing or persisting the resulting state.
+        </p>
+      </details>
+      <details>
+        <summary>Why keep the explicit stock-size parameter?</summary>
+        <p>
+          It represents an official short-game variation while the omitted
+          value remains the standard player-count-dependent setup.
+        </p>
+      </details>
+
+      <h2>Primary sources</h2>
+      <ul>
+        <li>
+          <a href="https://service.mattel.com/instruction_sheets/JMM20_DOM.pdf"
+            >Mattel’s 2025 Skip-Bo instructions</a
+          >
+          for player count, stock sizes, pile counts, drawing, and winning.
+        </li>
+        <li>
+          <a
+            href="https://www.typescriptlang.org/docs/handbook/release-notes/typescript-3-7.html#assertion-functions"
+            >TypeScript: Assertion Functions</a
+          >
+          for runtime guards modeled as functions that throw on invalid input.
+        </li>
+        <li>
+          <a href="https://martinfowler.com/bliki/TestInvariant.html"
+            >Martin Fowler: Test Invariant</a
+          >
+          for the role of conditions expected to hold across operations.
+        </li>
+      </ul>
+
+      <footer>
+        Previous:
+        <a href="./0001-legal-commands-as-engine-authority.html"
+          >Legal commands as engine authority</a
+        >. Review the retrieval prompts after a delay, and ask the agent about
+        any boundary or invariant that remains unclear.
+      </footer>
+    </main>
+  </body>
+</html>

@@ -6,7 +6,7 @@ import type {
 import type { Effect } from "./effect";
 import type { GameState } from "./game-state";
 import type { PlayerAction } from "./player-state";
-import { copyGameState } from "./game-state";
+import { assertValidGameState, copyGameState } from "./game-state";
 import { drawCards, shuffleCardsBackIntoDeck, WILD_CARD } from "./deck";
 
 export function resolveCommand(
@@ -18,6 +18,7 @@ export function resolveCommand(
   availableActions: PlayerAction[];
 } {
   const inputState = gameState;
+  assertValidGameState(inputState);
 
   if (inputState.isGameOver) {
     throw new Error("Cannot resolve a command after the game is over");
@@ -81,7 +82,7 @@ export function resolveCommand(
   }
 
   if (
-    !getLegalCommands(inputState).some((legal) =>
+    !getLegalCommandsForValidState(inputState).some((legal) =>
       commandsEqual(legal, command),
     )
   ) {
@@ -132,23 +133,18 @@ export function resolveCommand(
 
   if (command.type === "playCard") {
     const buildPile = nextState.buildPiles[command.destinationIndex]!;
+    if (buildPile.length === 12) {
+      nextState.deck = shuffleCardsBackIntoDeck(nextState.deck, buildPile);
+      nextState.buildPiles[command.destinationIndex] = [];
+      effects.push({
+        type: "buildPileResolved",
+        pileIndex: command.destinationIndex,
+      });
+    }
+
     if (currentPlayerNextState.stockPile.length === 0) {
       nextState.isGameOver = true;
     } else {
-      if (buildPile.length === 12) {
-        const completedBuildPile =
-          nextState.buildPiles[command.destinationIndex]!;
-        nextState.deck = shuffleCardsBackIntoDeck(
-          nextState.deck,
-          completedBuildPile,
-        );
-        nextState.buildPiles[command.destinationIndex] = [];
-        effects.push({
-          type: "buildPileResolved",
-          pileIndex: command.destinationIndex,
-        });
-      }
-
       if (currentPlayerNextState.cardsInHand.length === 0) {
         const { remainingDeck, cardsInHand, cardsDrawn } = drawCardsFromDeck(
           nextState.deck,
@@ -190,7 +186,8 @@ export function resolveCommand(
     }
   }
 
-  const legalCommands = getLegalCommands(nextState);
+  assertValidGameState(nextState);
+  const legalCommands = getLegalCommandsForValidState(nextState);
   const availableActions: PlayerAction[] = [];
   if (legalCommands.some((legalCommand) => legalCommand.type === "playCard")) {
     availableActions.push("playCard");
@@ -205,6 +202,11 @@ export function resolveCommand(
 }
 
 export function getLegalCommands(gameState: GameState): Command[] {
+  assertValidGameState(gameState);
+  return getLegalCommandsForValidState(gameState);
+}
+
+function getLegalCommandsForValidState(gameState: GameState): Command[] {
   if (gameState.isGameOver) {
     return [];
   }
