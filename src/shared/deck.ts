@@ -65,6 +65,22 @@ export function drawCards(
 export function shuffleCardsBackIntoDeck(
   deck: number[],
   cards: number[],
+  random: () => number = Math.random,
 ): number[] {
-  return [...deck, ...cards].sort(() => Math.random());
+  return shuffleCards([...deck, ...cards], random);
+}
+
+export function shuffleCards(
+  cards: number[],
+  random: () => number = Math.random,
+): number[] {
+  const shuffledCards = [...cards];
+  for (let index = shuffledCards.length - 1; index > 0; index--) {
+    const swapIndex = Math.floor(random() * (index + 1));
+    [shuffledCards[index], shuffledCards[swapIndex]] = [
+      shuffledCards[swapIndex]!,
+      shuffledCards[index]!,
+    ];
+  }
+  return shuffledCards;
 }

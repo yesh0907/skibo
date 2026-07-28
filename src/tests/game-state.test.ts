@@ -85,6 +85,15 @@ describe("assertValidGameState", () => {
     expect(() => assertValidGameState(state)).not.toThrow();
   });
 
+  test("accepts canonical completed build piles waiting to be recycled", () => {
+    const state = createGameState(["player1", "player2"], 10);
+    state.completedBuildPiles = [
+      [1, 2, WILD_CARD, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+    ];
+
+    expect(() => assertValidGameState(state)).not.toThrow();
+  });
+
   test.each([
     {
       mutate: (state: ReturnType<typeof createGameState>) => {
@@ -129,6 +138,20 @@ describe("assertValidGameState", () => {
         ];
       },
       message: "Completed build piles must be resolved",
+    },
+    {
+      mutate: (state: ReturnType<typeof createGameState>) => {
+        state.completedBuildPiles = [[1, 2, 3]];
+      },
+      message: "Completed build piles must contain exactly 12 cards",
+    },
+    {
+      mutate: (state: ReturnType<typeof createGameState>) => {
+        state.completedBuildPiles = [
+          [1, 2, 4, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+        ];
+      },
+      message: "Completed build piles must follow the sequence from 1 to 12",
     },
   ])("rejects malformed state: $message", ({ mutate, message }) => {
     const state = createGameState(["player1", "player2"], 10);

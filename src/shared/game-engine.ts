@@ -7,17 +7,23 @@ import type { Effect } from "./effect";
 import type { GameState } from "./game-state";
 import type { PlayerAction } from "./player-state";
 import { assertValidGameState, copyGameState } from "./game-state";
-import { drawCards, shuffleCardsBackIntoDeck, WILD_CARD } from "./deck";
+import { shuffleCards, WILD_CARD } from "./deck";
+
+export interface ResolveCommandOptions {
+  random?: () => number;
+}
 
 export function resolveCommand(
   command: Command,
   gameState: GameState,
+  options: ResolveCommandOptions = {},
 ): {
   nextState: GameState;
   effects: Effect[];
   availableActions: PlayerAction[];
 } {
   const inputState = gameState;
+  const random = options.random ?? Math.random;
   assertValidGameState(inputState);
 
   if (inputState.isGameOver) {
@@ -134,7 +140,7 @@ export function resolveCommand(
   if (command.type === "playCard") {
     const buildPile = nextState.buildPiles[command.destinationIndex]!;
     if (buildPile.length === 12) {
-      nextState.deck = shuffleCardsBackIntoDeck(nextState.deck, buildPile);
+      nextState.completedBuildPiles.push(buildPile);
       nextState.buildPiles[command.destinationIndex] = [];
       effects.push({
         type: "buildPileResolved",
@@ -146,16 +152,21 @@ export function resolveCommand(
       nextState.isGameOver = true;
     } else {
       if (currentPlayerNextState.cardsInHand.length === 0) {
-        const { remainingDeck, cardsInHand, cardsDrawn } = drawCardsFromDeck(
+        const drawResult = drawCardsForHand(
           nextState.deck,
+          nextState.completedBuildPiles,
           currentPlayerNextState.cardsInHand,
+          random,
         );
-        nextState.deck = remainingDeck;
-        currentPlayerNextState.cardsInHand = cardsInHand;
-        effects.push({
-          type: "cardsDrawn",
-          cardValues: cardsDrawn,
-        });
+        nextState.deck = drawResult.remainingDeck;
+        nextState.completedBuildPiles = drawResult.completedBuildPiles;
+        currentPlayerNextState.cardsInHand = drawResult.cardsInHand;
+        if (drawResult.cardsDrawn.length > 0) {
+          effects.push({
+            type: "cardsDrawn",
+            cardValues: drawResult.cardsDrawn,
+          });
+        }
       }
     }
   } else if (command.type === "discardCard") {
@@ -168,20 +179,23 @@ export function resolveCommand(
     nextState.currentPlayerIndex =
       (nextState.currentPlayerIndex + 1) % nextState.players.length;
     const nextPlayerState = nextState.players[nextState.currentPlayerIndex]!;
-    const { remainingDeck, cardsInHand, cardsDrawn } = drawCardsFromDeck(
+    const drawResult = drawCardsForHand(
       nextState.deck,
+      nextState.completedBuildPiles,
       nextPlayerState.cardsInHand,
+      random,
     );
     nextState.players[nextState.currentPlayerIndex] = {
       ...nextPlayerState,
-      cardsInHand,
+      cardsInHand: drawResult.cardsInHand,
     };
-    nextState.deck = remainingDeck;
+    nextState.deck = drawResult.remainingDeck;
+    nextState.completedBuildPiles = drawResult.completedBuildPiles;
 
-    if (cardsDrawn.length > 0) {
+    if (drawResult.cardsDrawn.length > 0) {
       effects.push({
         type: "cardsDrawn",
-        cardValues: cardsDrawn,
+        cardValues: drawResult.cardsDrawn,
       });
     }
   }
@@ -339,20 +353,45 @@ function commandsEqual(left: Command, right: Command): boolean {
   );
 }
 
-function drawCardsFromDeck(
+function drawCardsForHand(
   deck: number[],
-  currCardsInHand: number[],
-): { remainingDeck: number[]; cardsInHand: number[]; cardsDrawn: number[] } {
-  const nbOfCardsToDraw = 5 - currCardsInHand.length;
-  const { remainingDeck, cardsInHand } = drawCards(
-    deck,
-    currCardsInHand,
-    nbOfCardsToDraw,
-  );
+  completedBuildPiles: number[][],
+  currentCardsInHand: number[],
+  random: () => number,
+): {
+  remainingDeck: number[];
+  completedBuildPiles: number[][];
+  cardsInHand: number[];
+  cardsDrawn: number[];
+} {
+  const remainingDeck = [...deck];
+  let remainingCompletedBuildPiles = completedBuildPiles.map((pile) => [
+    ...pile,
+  ]);
+  const cardsInHand = [...currentCardsInHand];
+  const cardsDrawn: number[] = [];
+
+  while (cardsInHand.length < 5) {
+    if (remainingDeck.length === 0) {
+      if (remainingCompletedBuildPiles.length === 0) {
+        break;
+      }
+
+      remainingDeck.push(
+        ...shuffleCards(remainingCompletedBuildPiles.flat(), random),
+      );
+      remainingCompletedBuildPiles = [];
+    }
+
+    const card = remainingDeck.pop()!;
+    cardsInHand.push(card);
+    cardsDrawn.push(card);
+  }
 
   return {
     remainingDeck,
+    completedBuildPiles: remainingCompletedBuildPiles,
     cardsInHand,
-    cardsDrawn: nbOfCardsToDraw > 0 ? cardsInHand.slice(-nbOfCardsToDraw) : [],
+    cardsDrawn,
   };
 }

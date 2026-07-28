@@ -36,6 +36,10 @@
   - added structural game-state validation for card values, pile shapes, hand size, build sequence, turn index, and game-over consistency
   - applied invariant checks at game creation and both sides of engine transitions
   - kept terminal snapshots canonical when a winning stock card also completes a build pile
+  - modeled completed build piles as a distinct reserve instead of immediately mixing them into the draw deck
+  - recycled the completed-pile reserve only when a hand draw exhausts the active deck
+  - made exhausted supplies produce a partial draw instead of an engine error
+  - injected the shuffle source into command resolution so recycling behavior is deterministic under test
 
 ## Working Agreement
 
@@ -430,7 +434,6 @@ For this project, a good mental shortcut is:
 
 The next concrete implementation step is to finish Phase 1:
 
-- define deck-exhaustion and commands-after-game-over behavior
 - complete official turn-transition and win-condition coverage
 - add a local simulation that exercises the engine through complete games
 - use exact legal commands as the shared source for validation and client choices

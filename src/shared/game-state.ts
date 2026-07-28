@@ -14,6 +14,7 @@ export interface GameState {
   players: PlayerState[];
   deck: number[];
   buildPiles: number[][];
+  completedBuildPiles: number[][];
   currentPlayerIndex: number;
   isGameOver: boolean;
 }
@@ -63,6 +64,7 @@ export function createGameState(
     players,
     deck,
     buildPiles: new Array(PILES_PER_GAME).fill(null).map(() => []),
+    completedBuildPiles: [],
     currentPlayerIndex: 0,
     isGameOver: false,
   };
@@ -76,6 +78,7 @@ export function copyGameState(state: GameState): GameState {
     players: state.players.map(copyPlayerState),
     deck: [...state.deck],
     buildPiles: state.buildPiles.map((pile) => [...pile]),
+    completedBuildPiles: state.completedBuildPiles.map((pile) => [...pile]),
     currentPlayerIndex: state.currentPlayerIndex,
     isGameOver: state.isGameOver,
   };
@@ -108,6 +111,22 @@ export function assertValidGameState(state: GameState): void {
     buildPile.forEach((cardValue, index) => {
       if (cardValue !== WILD_CARD && cardValue !== index + 1) {
         throw new Error("Build piles must follow the sequence from 1 to 12");
+      }
+    });
+  });
+
+  state.completedBuildPiles.forEach((completedBuildPile) => {
+    if (completedBuildPile.length !== MAX_BUILD_PILE_SIZE + 1) {
+      throw new Error(
+        "Completed build piles must contain exactly 12 cards",
+      );
+    }
+    assertCardValues(completedBuildPile);
+    completedBuildPile.forEach((cardValue, index) => {
+      if (cardValue !== WILD_CARD && cardValue !== index + 1) {
+        throw new Error(
+          "Completed build piles must follow the sequence from 1 to 12",
+        );
       }
     });
   });

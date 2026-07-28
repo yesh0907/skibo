@@ -12,6 +12,8 @@
   Primary runtime reference for the test structure and assertions used by the engine suite.
 - [Martin Fowler: Test Invariant](https://martinfowler.com/bliki/TestInvariant.html)
   Short reference on expressing conditions that must remain true across many operations.
+- [MDN: Math.random()](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Math/random)
+  Language reference for the production random-number source injected into deck shuffling.
 
 ## Wisdom (Communities)
 

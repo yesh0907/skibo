@@ -122,7 +122,10 @@ describe("GameEngine", () => {
 
     expect(nextState.isGameOver).toBe(true);
     expect(nextState.buildPiles[0]).toEqual([]);
-    expect(nextState.deck).toHaveLength(12);
+    expect(nextState.deck).toEqual([]);
+    expect(nextState.completedBuildPiles).toEqual([
+      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+    ]);
     expect(effects).toEqual([
       {
         type: "cardPlayed",
@@ -170,7 +173,7 @@ describe("GameEngine", () => {
     ]);
   });
 
-  test("completing a build pile clears it and shuffles it back into the deck", () => {
+  test("completing a build pile clears it and recycles it when a refill needs cards", () => {
     const gameState = createGameState(["player1", "player2"]);
     gameState.players[0]!.cardsInHand = [12];
     gameState.buildPiles[2] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
@@ -190,6 +193,7 @@ describe("GameEngine", () => {
 
     expect(nextState.buildPiles[2]).toEqual([]);
     expect(nextState.deck).toHaveLength(7);
+    expect(nextState.completedBuildPiles).toEqual([]);
     expect(nextState.players[0]!.cardsInHand).toHaveLength(5);
     expect(effects[0]).toEqual({
       type: "cardPlayed",
@@ -391,10 +395,13 @@ describe("GameEngine", () => {
       destinationIndex: 1,
     };
 
-    const { nextState, effects } = resolveCommand(playCardCommand, gameState);
+    const { nextState, effects } = resolveCommand(playCardCommand, gameState, {
+      random: () => 0.999,
+    });
 
     expect(nextState.buildPiles[1]).toEqual([]);
-    expect(nextState.players[0]!.cardsInHand).toHaveLength(5);
+    expect(nextState.players[0]!.cardsInHand).toEqual([9, 8, 12, 11, 10]);
+    expect(nextState.completedBuildPiles).toEqual([]);
     expect(effects).toEqual([
       {
         type: "cardPlayed",
@@ -412,6 +419,84 @@ describe("GameEngine", () => {
       },
     ]);
     expect((effects[2] as { cardValues: number[] }).cardValues).toHaveLength(5);
+  });
+
+  test("keeps completed build piles in reserve while the draw deck is sufficient", () => {
+    const gameState = createGameState(["player1", "player2"], 10);
+    gameState.players[0]!.cardsInHand = [12];
+    gameState.buildPiles[0] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
+    gameState.deck = [5, 6, 7, 8, 9];
+
+    const command: Command = {
+      type: "playCard",
+      cardValue: 12,
+      source: { type: "hand", index: 0 },
+      destinationIndex: 0,
+    };
+
+    const { nextState } = resolveCommand(command, gameState);
+
+    expect(nextState.players[0]!.cardsInHand).toEqual([9, 8, 7, 6, 5]);
+    expect(nextState.deck).toEqual([]);
+    expect(nextState.completedBuildPiles).toEqual([
+      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+    ]);
+  });
+
+  test("recycles completed piles when the next player draws at turn start", () => {
+    const gameState = createGameState(["player1", "player2"], 10);
+    gameState.players[0]!.cardsInHand = [6];
+    gameState.players[1]!.cardsInHand = [1, 2, 3];
+    gameState.deck = [];
+    gameState.completedBuildPiles = [
+      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+    ];
+
+    const command: Command = {
+      type: "discardCard",
+      cardValue: 6,
+      source: { type: "hand", index: 0 },
+      discardPileIndex: 0,
+    };
+
+    const { nextState, effects } = resolveCommand(command, gameState, {
+      random: () => 0.999,
+    });
+
+    expect(gameState.completedBuildPiles).toEqual([
+      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+    ]);
+    expect(nextState.players[1]!.cardsInHand).toEqual([1, 2, 3, 12, 11]);
+    expect(nextState.deck).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    expect(nextState.completedBuildPiles).toEqual([]);
+    expect(effects.at(-1)).toEqual({
+      type: "cardsDrawn",
+      cardValues: [12, 11],
+    });
+  });
+
+  test("draws as many cards as possible when all card supplies are exhausted", () => {
+    const gameState = createGameState(["player1", "player2"], 10);
+    gameState.players[0]!.cardsInHand = [6];
+    gameState.players[1]!.cardsInHand = [1, 2];
+    gameState.deck = [8, 9];
+    gameState.completedBuildPiles = [];
+
+    const command: Command = {
+      type: "discardCard",
+      cardValue: 6,
+      source: { type: "hand", index: 0 },
+      discardPileIndex: 0,
+    };
+
+    const { nextState, effects } = resolveCommand(command, gameState);
+
+    expect(nextState.players[1]!.cardsInHand).toEqual([1, 2, 9, 8]);
+    expect(nextState.deck).toEqual([]);
+    expect(effects.at(-1)).toEqual({
+      type: "cardsDrawn",
+      cardValues: [9, 8],
+    });
   });
 
   test("rejects playing from an invalid discard pile index", () => {

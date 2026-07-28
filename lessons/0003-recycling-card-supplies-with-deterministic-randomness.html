@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Recycling Card Supplies with Deterministic Randomness</title>
+    <link rel="stylesheet" href="../assets/lesson.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <div class="kicker">Skip-Bo Engine · Lesson 0003</div>
+        <h1>Recycling card supplies with deterministic randomness</h1>
+        <p class="lead">
+          Correct deck exhaustion depends on representing where cards are now,
+          when they become drawable, and how randomness enters a pure transition.
+        </p>
+        <div class="meta">Completed slice: draw-pile exhaustion</div>
+      </header>
+
+      <h2>One supply, two lifecycle states</h2>
+      <p>
+        A completed build pile is reusable, but it is not immediately drawable.
+        The engine therefore keeps two explicit supplies:
+        <code>deck</code> contains cards available for the next draw, while
+        <code>completedBuildPiles</code> holds resolved twelve-card sequences
+        until the deck runs out.
+      </p>
+
+      <div class="flow" aria-label="Card supply lifecycle">
+        <div>
+          <strong>Active deck</strong>
+          Draw from the end until the hand is full or the deck is empty.
+        </div>
+        <div>
+          <strong>Completed reserve</strong>
+          Preserve each resolved build pile unchanged while cards remain in the
+          active deck.
+        </div>
+        <div>
+          <strong>Recycled deck</strong>
+          Flatten and shuffle the reserve only when a draw needs more cards.
+        </div>
+      </div>
+
+      <pre><code>while (hand.length &lt; 5) {
+  if (deck.length === 0) {
+    if (completedBuildPiles.length === 0) break
+    deck = shuffle(flatten(completedBuildPiles), random)
+    completedBuildPiles = []
+  }
+
+  hand.push(deck.pop())
+}</code></pre>
+
+      <h2>Why the boundary is lazy</h2>
+      <p>
+        Immediate recycling would change the meaning and order of the active
+        deck even when it already has enough cards. Lazy recycling preserves
+        that known supply first. Only the draw operation that observes an empty
+        deck converts reserve cards into drawable cards.
+      </p>
+      <div class="callout">
+        <strong>State-model lesson:</strong> if two groups of identical values
+        have different legal behavior, represent them as different state. The
+        distinction belongs in the model, not in a comment.
+      </div>
+
+      <h2>Exhaustion is a result, not an exception</h2>
+      <p>
+        The official draw target is five cards, but a small synthetic state or
+        an exhausted game may not contain enough supply. The draw helper now
+        consumes every available card and returns a smaller hand. That keeps the
+        transition total for valid state: scarcity changes the result rather
+        than turning normal game resolution into an error path.
+      </p>
+
+      <h2>Random outside, determinism inside</h2>
+      <p>
+        Fisher–Yates produces an unbiased in-place shuffle when its random
+        samples are uniform. The engine copies cards before shuffling and takes
+        a <code>random</code> function through <code>resolveCommand</code>.
+        Production uses <code>Math.random</code>; tests inject a fixed function
+        and can assert the exact resulting hand and deck.
+      </p>
+
+      <pre><code>resolveCommand(command, state, {
+  random: () =&gt; 0.999,
+})</code></pre>
+
+      <p>
+        This is dependency injection at the smallest useful boundary. Commands
+        and snapshots stay ordinary data, while the one nondeterministic input
+        is explicit and replaceable.
+      </p>
+
+      <h2>The invariant follows the lifecycle</h2>
+      <p>
+        Every reserved pile must contain exactly twelve physical cards. At each
+        one-based position, the card must either equal that position or be the
+        wild value zero. Copies also deep-copy the reserve so resolving a
+        command cannot mutate the caller’s nested arrays.
+      </p>
+      <p>
+        A winning stock play still resolves a completed build pile into this
+        reserve. Since game over suppresses the next draw, those cards remain
+        reserved in the terminal snapshot rather than being shuffled for no
+        gameplay purpose.
+      </p>
+
+      <h2>Retrieve before revealing</h2>
+      <details>
+        <summary>Why not append completed piles directly to the deck?</summary>
+        <p>
+          They are reusable but not yet drawable. Mixing them immediately
+          destroys the lifecycle distinction and can alter draws prematurely.
+        </p>
+      </details>
+      <details>
+        <summary>What happens when deck plus reserve cannot fill a hand?</summary>
+        <p>
+          The engine draws every available card, returns the partial hand, and
+          emits an effect only for the number of cards actually drawn.
+        </p>
+      </details>
+      <details>
+        <summary>Why inject a function instead of a pre-shuffled deck?</summary>
+        <p>
+          The engine still exercises its real recycling and Fisher–Yates logic,
+          while tests control the only nondeterministic dependency.
+        </p>
+      </details>
+
+      <h2>Primary sources</h2>
+      <ul>
+        <li>
+          <a href="https://service.mattel.com/instruction_sheets/JMM20_DOM.pdf"
+            >Mattel’s 2025 Skip-Bo instructions</a
+          >
+          for completing build piles, reusing them when the draw pile runs out,
+          and drawing to five cards.
+        </li>
+        <li>
+          <a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Math/random"
+            >MDN: Math.random()</a
+          >
+          for the production random-number source supplied to the shuffle.
+        </li>
+      </ul>
+
+      <footer>
+        Previous:
+        <a href="./0002-state-invariants-as-executable-contracts.html"
+          >State invariants as executable contracts</a
+        >. Review the retrieval prompts after a delay, and ask the agent about
+        any state or randomness boundary that remains unclear.
+      </footer>
+    </main>
+  </body>
+</html>
