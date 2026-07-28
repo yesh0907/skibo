@@ -6,6 +6,7 @@
     "dev": "wrangler dev",
     "check": "wrangler types --check && tsc --noEmit",
     "cli": "bun run ./src/cli/index.ts",
+    "simulate": "bun run ./src/cli/simulate.ts",
     "test": "bun test",
     "types:cf": "wrangler types"
   },

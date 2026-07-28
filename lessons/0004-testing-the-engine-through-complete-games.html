@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Testing the Engine Through Complete Games</title>
+    <link rel="stylesheet" href="../assets/lesson.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <div class="kicker">Skip-Bo Engine · Lesson 0004</div>
+        <h1>Testing the engine through complete games</h1>
+        <p class="lead">
+          A deterministic simulator turns many individually correct transitions
+          into one runnable proof that the rules engine can reach a winner.
+        </p>
+        <div class="meta">Completed slice: local whole-game simulation</div>
+      </header>
+
+      <h2>The simulator is a real engine client</h2>
+      <p>
+        <code>simulateGame(...)</code> does not modify piles directly. On every
+        step it asks <code>getLegalCommands(state)</code> what is possible,
+        chooses one command, and sends that exact command through
+        <code>resolveCommand(...)</code>. Runtime invariants still guard both
+        sides of every transition.
+      </p>
+
+      <div class="flow" aria-label="Whole-game simulation loop">
+        <div>
+          <strong>Observe</strong>
+          Calculate exact legal commands from the canonical snapshot.
+        </div>
+        <div>
+          <strong>Choose</strong>
+          Prefer stock, discard, and hand plays, then end the turn by discarding.
+        </div>
+        <div>
+          <strong>Resolve</strong>
+          Apply the normal engine transition until a winner or command limit.
+        </div>
+      </div>
+
+      <pre><code>while (!state.isGameOver &amp;&amp; commandCount &lt; maxCommands) {
+  const command = chooseCommand(state)
+  state = resolveCommand(command, state, { random }).nextState
+  commandCount++
+}</code></pre>
+
+      <h2>Why deterministic randomness matters twice</h2>
+      <p>
+        The same seeded random function now drives initial deck creation and
+        completed-pile recycling. A seed therefore identifies an entire run,
+        not merely one shuffle. Seed 42 with two five-card stock piles always
+        produces the same winner, command count, and final snapshot.
+      </p>
+      <div class="callout">
+        <strong>Debugging payoff:</strong> a failing seed is a compact replay
+        handle. The test suite can rerun the exact card order and transition
+        history instead of hoping a random failure appears again.
+      </div>
+
+      <h2>A policy is not a rule</h2>
+      <p>
+        The simulator’s command chooser is deliberately simple. Its preference
+        for stock cards is strategy; the command list and resolver enforce
+        legality. Keeping those roles separate means a human CLI, bot, or web
+        client can choose differently without duplicating Skip-Bo rules.
+      </p>
+
+      <h2>Bounded failure is observable</h2>
+      <p>
+        Automated policies can stall even when the engine is correct. A command
+        limit prevents an accidental infinite run, while a separate diagnostic
+        captures a valid nonterminal state with no legal command. Both return
+        the last valid snapshot instead of crashing. Tests can distinguish “the
+        game reached a winner” from each kind of incomplete run.
+      </p>
+
+      <h2>Run the checkpoint</h2>
+      <pre><code>bun run simulate -- --seed 42 --stock 5 Ada Grace</code></pre>
+      <p>
+        Change the seed for another reproducible game. Use
+        <code>--stock 30</code> for the standard two-player stock size and
+        <code>--max</code> to change the command budget.
+      </p>
+
+      <h2>Retrieve before revealing</h2>
+      <details>
+        <summary>Why must the simulator call <code>getLegalCommands</code>?</summary>
+        <p>
+          It keeps legality authoritative in the engine and makes the simulator
+          behave like any future client rather than becoming a second rules
+          implementation.
+        </p>
+      </details>
+      <details>
+        <summary>What does a seed reproduce?</summary>
+        <p>
+          Initial deck placement, later reserve shuffles, command choices, and
+          therefore the complete sequence of resulting snapshots.
+        </p>
+      </details>
+      <details>
+        <summary>Why return a command-limit result instead of throwing?</summary>
+        <p>
+          Reaching the budget is an expected simulation outcome with useful
+          state, not an invalid engine transition.
+        </p>
+      </details>
+
+      <h2>Primary sources</h2>
+      <ul>
+        <li>
+          <a href="https://service.mattel.com/instruction_sheets/JMM20_DOM.pdf"
+            >Mattel’s 2025 Skip-Bo instructions</a
+          >
+          for the turn, build-pile, stock-pile, and winning behavior exercised
+          across a complete run.
+        </li>
+        <li>
+          <a href="https://bun.sh/docs/test/writing-tests"
+            >Bun: Writing tests</a
+          >
+          for the public-boundary tests around deterministic simulations and
+          CLI process output.
+        </li>
+      </ul>
+
+      <footer>
+        Previous:
+        <a href="./0003-recycling-card-supplies-with-deterministic-randomness.html"
+          >Recycling card supplies with deterministic randomness</a
+        >. Rerun a saved seed after a delay, and ask the agent about any
+        simulation or engine boundary that remains unclear.
+      </footer>
+    </main>
+  </body>
+</html>

@@ -28,6 +28,7 @@ const MAX_BUILD_PILE_SIZE = 11;
 export function createGameState(
   playerNames: string[],
   stockPileSize?: number,
+  random: () => number = Math.random,
 ): GameState {
   assertValidPlayerNames(playerNames);
 
@@ -46,7 +47,7 @@ export function createGameState(
     throw new Error("Not enough cards to deal the requested game setup");
   }
 
-  let deck = populateGameDeck();
+  let deck = populateGameDeck(random);
   const players: PlayerState[] = playerNames.map((name) => {
     let { remainingDeck: deckAfterHand, dealtCards: cardsInHand } = dealCards(
       deck,

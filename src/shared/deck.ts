@@ -2,15 +2,17 @@ export const WILD_CARD = 0;
 export const WILD_CARDS_IN_DECK = 18;
 export const GAME_DECK_SIZE = 12 * 12 + WILD_CARDS_IN_DECK; // 12 of each number from 1-12, and 18 wild cards cards = 162 cards
 
-export function populateGameDeck(): number[] {
+export function populateGameDeck(
+  random: () => number = Math.random,
+): number[] {
   const deck = new Array<number>(GAME_DECK_SIZE);
 
   for (let cardVal = 0; cardVal <= 12; cardVal++) {
     const maxCount = cardVal === WILD_CARD ? WILD_CARDS_IN_DECK : 12;
     for (let cardCount = 0; cardCount < maxCount; cardCount++) {
-      let cardIndex = Math.floor(Math.random() * GAME_DECK_SIZE);
+      let cardIndex = Math.floor(random() * GAME_DECK_SIZE);
       while (deck[cardIndex] !== undefined) {
-        cardIndex = Math.floor(Math.random() * GAME_DECK_SIZE);
+        cardIndex = Math.floor(random() * GAME_DECK_SIZE);
       }
       deck[cardIndex] = cardVal;
     }

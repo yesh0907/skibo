@@ -11,17 +11,10 @@ Multiplayer Skip-Bo built on Cloudflare, starting with a CLI-first experience so
 
 ## Collaboration Model
 
-This project is also an experiment in building software with a coding agent.
-
-The goal is not to have the agent build everything. The goal is for me to use the agent to remove friction while I manually implement the high-value, interesting parts of the project so I can learn by doing.
-
-That means:
-
-- I will write the important learning-heavy pieces myself, especially Durable Objects and core game mechanics
-- the agent will help with scaffolding, boilerplate, glue code, reviews, and other annoying parts that slow projects down
-- the project should stay structured in a way that makes the key technical ideas visible rather than hidden behind abstractions
-
-This repo is meant to document both the game and that workflow.
+This project is also an experiment in building software quickly and correctly
+with agentic coding tools. The agent owns implementation and verification by
+default, while concise technical lessons preserve the important architecture,
+rules, and tradeoffs as the system grows.
 
 ## Planned Stack
 
@@ -48,3 +41,15 @@ This repo is meant to document both the game and that workflow.
 ```bash
 bun install
 ```
+
+## Test The Engine
+
+Run a complete deterministic short game locally:
+
+```bash
+bun run simulate -- --seed 42 --stock 5 Ada Grace
+```
+
+The simulator uses the real legal-command and transition APIs. Change the seed
+to explore another reproducible game, or omit the options for a quick default
+run. Use `--stock 30` for the standard two-player stock size.

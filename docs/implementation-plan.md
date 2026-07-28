@@ -40,6 +40,8 @@
   - recycled the completed-pile reserve only when a hand draw exhausts the active deck
   - made exhausted supplies produce a partial draw instead of an engine error
   - injected the shuffle source into command resolution so recycling behavior is deterministic under test
+  - added a deterministic whole-game simulator that chooses only from exact legal commands and reports winners or bounded diagnostic stops
+  - exposed the simulator through a Bun CLI command for reproducible short and standard-stock engine playthroughs
 
 ## Working Agreement
 
@@ -435,8 +437,8 @@ For this project, a good mental shortcut is:
 The next concrete implementation step is to finish Phase 1:
 
 - complete official turn-transition and win-condition coverage
-- add a local simulation that exercises the engine through complete games
 - use exact legal commands as the shared source for validation and client choices
+- integrate the verified engine state and command loop into the Durable Object
 
 Supporting scaffolding now exists for the completed Phase 0 spike:
 
