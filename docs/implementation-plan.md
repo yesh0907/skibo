@@ -2,8 +2,8 @@
 
 ## Status
 
-- Current phase: Phase 1 Core Game Engine
-- Current focus: finish the pure engine as the authoritative rules core, then integrate it into the Durable Object and CLI
+- Current phase: Phase 2 Real Game Durable Object complete
+- Current focus: build a minimal playable web UI against the authoritative HTTP game API
 - Progress:
   - established project goals and collaboration model
   - chose a CLI-first architecture
@@ -12,7 +12,7 @@
   - defined the first learning slice as a local HTTP-only Durable Object spike
   - chose a minimal room model: `gameId`, `status`, `players`, `turnIndex`
   - decided the Worker generates `gameId` and addresses rooms with `getByName(gameId)`
-  - decided room state should be loaded from storage or initialized lazily
+  - initially explored lazy room initialization, then replaced it with explicit creation to prevent arbitrary ids from persisting empty rooms
   - scaffolded Worker routes and shared room types around a hand-written `GameRoomDO`
   - added `wrangler.jsonc` with the `GAME_ROOM` binding and first DO migration
   - hand-wrote `GameRoomDO.getState()`, `join()`, `start()`, and `passTurn()`
@@ -44,6 +44,15 @@
   - exposed the simulator through a Bun CLI command for reproducible short and standard-stock engine playthroughs
   - added a playable local human-versus-bot CLI that renders canonical state and presents exact legal commands as numbered choices
   - kept terminal input, human choice, and bot policy outside the rules engine while routing every selected command through the same resolver
+  - replaced placeholder Durable Object turn state with the canonical pure-engine `GameState`
+  - added authoritative DO methods for starting games, reading player-specific views, and resolving player-owned commands
+  - persisted resolved snapshots before updating the DO memory cache and verified rehydration through a fresh instance
+  - exposed UI-ready HTTP routes for player views and exact legal commands while hiding opponent hands
+  - verified create, join, start, stock play, discard turn transition, and second-player hydration through local `wrangler dev`
+  - replaced player-name trust with server-issued player tokens used for private views and command authorization
+  - filtered next-player draw effects so private card values cannot bypass view projection
+  - required explicit room initialization so arbitrary game ids cannot create persisted Durable Objects
+  - capped waiting rooms at the official six-player maximum and rejected incompatible legacy snapshots
 
 ## Working Agreement
 
@@ -66,7 +75,7 @@ In order of importance:
 
 1. Complete and verify the pure Skip-Bo rules engine
 2. Integrate the engine into one authoritative Durable Object per game
-3. Deliver a playable networked CLI loop with live updates and reconnect support
+3. Deliver a playable browser game over the authoritative HTTP API
 4. Keep client/server and Worker/DO boundaries explicit and testable
 
 ## Focus Rule
@@ -75,16 +84,18 @@ Prefer the smallest complete, tested slice that advances the playable multiplaye
 
 ## Product Direction
 
-The first version will be a networked CLI game, not a local-only script and not a browser app.
+The next product checkpoint will be a playable browser game backed by the
+networked Worker and Durable Object API.
 
 That means:
 
 - the backend still runs on Cloudflare
 - the game still supports multiple players
 - the game still updates live
-- the client is a Bun CLI instead of a web UI
+- the initial browser client may poll over HTTP before WebSockets are added
 
-This gives us fast iteration while still teaching the important Cloudflare concepts.
+The local CLI remains a useful diagnostic client, while the browser becomes the
+primary product surface for gameplay iteration.
 
 The first milestone was a thin vertical slice, not a complete polished game.
 
@@ -95,7 +106,8 @@ That first slice proved:
 - a CLI client can exercise the room through HTTP commands
 - state survives beyond a single request
 
-With that slice working, the current focus is expanding into the full official ruleset.
+With the engine and authoritative HTTP backend working, the current focus is a
+minimal playable browser client.
 
 ## Why Durable Objects Fit
 
@@ -116,22 +128,22 @@ The key Durable Object mental model for this project is:
 
 ## High-Level Architecture
 
-We will build two programs:
+We will build three connected surfaces:
 
 1. `worker/`
    Cloudflare Worker plus Durable Object backend
-2. `cli/`
-   Bun-based multiplayer CLI client
+2. `web/`
+   Browser-based multiplayer game client
+3. `cli/`
+   Bun-based diagnostic and local-play client
 
 Request flow:
 
-1. CLI sends HTTP request to the Worker
+1. Browser or CLI sends an HTTP request to the Worker
 2. Worker resolves the correct Durable Object with `getByName(gameId)`
 3. Worker calls the Durable Object
 4. Durable Object updates durable state and broadcasts changes
-5. CLI receives updates over HTTP responses or WebSockets
-
-This same backend architecture can later support a browser app with minimal backend changes.
+5. Client receives player-specific views over HTTP responses or WebSockets
 
 ### Transport split
 
@@ -157,7 +169,6 @@ Not in the first version:
 - Queues
 - SMS sending
 - auth providers
-- browser UI
 - analytics and observability extras
 - deployment automation
 
@@ -273,7 +284,7 @@ Initial routes:
   Starts the game
 - `GET /api/games/:gameId/state`
   Returns a reconnect snapshot
-- `POST /api/games/:gameId/moves`
+- `POST /api/games/:gameId/commands`
   Applies a move through the game engine
 - `GET /api/games/:gameId/ws`
   Opens a WebSocket for live updates
@@ -330,7 +341,7 @@ Each phase should leave behind a runnable checkpoint.
 2. That room survives multiple requests and reconnects through the Durable Object
 3. The pure Skip-Bo engine correctly models official rules under `bun test`
 4. The real engine is wired into the Durable Object and drives live multiplayer state
-5. The CLI is playable enough for real-world friend testing
+5. A browser game is playable enough for real-world friend testing
 
 ## Phase Plan
 
@@ -372,7 +383,20 @@ Build:
 - `playMove`
 - `getSnapshot`
 
-## Phase 3: Real-Time Transport
+## Phase 3: Playable Web UI
+
+Goal: make the authoritative game easy to play and iterate on in a browser.
+
+Build:
+
+- create and join room flow
+- locally persisted player token
+- waiting-room roster and start action
+- game table for build, stock, hand, and discard piles
+- exact legal-command interaction
+- HTTP polling for opponent turns
+
+## Phase 4: Real-Time Transport
 
 Goal: make multiplayer updates live.
 
@@ -383,19 +407,6 @@ Build:
 - broadcast on game state changes
 - reconnect support
 - if it stays manageable, use the DO hibernation WebSocket API so the project teaches a Cloudflare-specific real-time pattern
-
-## Phase 4: CLI UX
-
-Goal: make the game easily playable from the terminal.
-
-Build:
-
-- `create-game`
-- `join-game <id>`
-- `start-game`
-- `show-state`
-- `play <move>`
-- live event stream rendering
 
 ## Phase 5: Hardening
 
@@ -436,12 +447,13 @@ For this project, a good mental shortcut is:
 
 ## Immediate Next Step
 
-The next concrete implementation step is to finish Phase 1:
+The next concrete implementation step is to begin the playable web surface:
 
 - complete official turn-transition and win-condition coverage
-- use exact legal commands as the shared source for validation and client choices
-- integrate the verified engine state and command loop into the Durable Object
-- replace the local bot boundary with remote player commands after engine integration
+- build a minimal game table from the player-specific `GameView`
+- support create, join, start, refresh, and command submission through HTTP
+- keep exact legal commands as the browser's action source
+- add polling first, then WebSockets after the browser workflow is playable
 
 Supporting scaffolding now exists for the completed Phase 0 spike:
 

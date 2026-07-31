@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Making the Durable Object the Game Authority</title>
+    <link rel="stylesheet" href="../assets/lesson.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <div class="kicker">Skip-Bo Backend · Lesson 0006</div>
+        <h1>Making the Durable Object the game authority</h1>
+        <p class="lead">
+          One game now has one serialized coordinator that owns its canonical
+          engine snapshot, persistence, player identity, and public views.
+        </p>
+        <div class="meta">Completed slice: real-game Durable Object</div>
+      </header>
+
+      <h2>Authority is layered, not duplicated</h2>
+      <p>
+        The pure engine remains authoritative for Skip-Bo legality and
+        transitions. <code>GameRoomDO</code> adds multiplayer authority: it
+        decides which player may act, loads the current snapshot, invokes
+        <code>resolveCommand</code>, and durably records the result.
+      </p>
+
+      <div class="flow" aria-label="Authoritative command flow">
+        <div>
+          <strong>Worker</strong>
+          Validate HTTP shape and route the game id to one deterministic Durable
+          Object.
+        </div>
+        <div>
+          <strong>Game room</strong>
+          Authenticate a server-issued player token, verify turn ownership, then
+          call the pure engine.
+        </div>
+        <div>
+          <strong>Persistence</strong>
+          Store the resolved snapshot before replacing the in-memory cache and
+          returning a view.
+        </div>
+      </div>
+
+      <pre><code>request
+  → GAME_ROOM.getByName(gameId)
+  → room.playCommand(playerToken, command)
+  → resolveCommand(command, gameState)
+  → storage.put(nextRoomState)
+  → cache = nextRoomState
+  → player-specific GameView</code></pre>
+
+      <h2>The stored model and transmitted model differ</h2>
+      <p>
+        <code>RoomState</code> stores the complete <code>GameState</code>,
+        including every hand and the draw deck. The browser-facing
+        <code>GameView</code> is derived for one player. It includes public
+        build piles, discard piles, stock tops and counts, but replaces every
+        opponent hand with <code>null</code>.
+      </p>
+      <div class="callout">
+        <strong>Information boundary:</strong> hiding cards is a server
+        responsibility. A UI should never receive secret state and merely hide
+        it with CSS. Private next-player draw effects are filtered for the same
+        reason.
+      </div>
+
+      <h2>Legal commands are also private view data</h2>
+      <p>
+        Only the active player receives exact legal commands. Other players
+        receive an empty list and <code>isYourTurn: false</code>. This gives the
+        upcoming UI everything needed to enable actions without asking it to
+        reconstruct rules from piles.
+      </p>
+
+      <h2>Persist first, cache second</h2>
+      <p>
+        A successful transition writes the new room snapshot to Durable Object
+        storage before updating <code>#state</code>. If persistence fails, the
+        process does not advertise an in-memory move that cannot survive
+        eviction. A rehydration test creates a fresh room instance over the same
+        storage and observes the next player’s turn.
+      </p>
+
+      <h2>The Worker stays stateless</h2>
+      <p>
+        The Worker creates cryptographically random public game ids and uses
+        <code>getByName(gameId)</code> for deterministic routing. It validates
+        JSON request shapes and delegates all coordinated state changes to the
+        room. Room creation explicitly initializes storage, so merely addressing
+        an arbitrary id cannot create a persisted room.
+      </p>
+
+      <h2>Names are labels; tokens are identity</h2>
+      <p>
+        Joining returns an unguessable player token stored with the roster.
+        Private view and command requests authenticate that token inside the
+        Durable Object. Public player names remain useful display labels, but
+        knowing an opponent’s name no longer reveals their hand or grants their
+        turn. Clients send the token in an <code>Authorization: Bearer</code>
+        header so it does not enter URLs, browser history, or routine request
+        logs.
+      </p>
+
+      <h2>Retrieve before revealing</h2>
+      <details>
+        <summary>Why not store game state in the Worker?</summary>
+        <p>
+          Worker instances are stateless and may differ between requests. One
+          Durable Object serializes all commands for one game and owns durable
+          storage.
+        </p>
+      </details>
+      <details>
+        <summary>Why does the DO still call the pure engine?</summary>
+        <p>
+          Multiplayer authority decides who may request a transition; the
+          engine remains the single implementation of what that transition
+          means.
+        </p>
+      </details>
+      <details>
+        <summary>Why derive views on the server?</summary>
+        <p>
+          It prevents hidden hands and deck contents from crossing the trust
+          boundary at all.
+        </p>
+      </details>
+
+      <h2>Primary sources</h2>
+      <ul>
+        <li>
+          <a href="https://developers.cloudflare.com/durable-objects/best-practices/rules-of-durable-objects/"
+            >Cloudflare: Rules of Durable Objects</a
+          >
+          for per-entity coordination, strong consistency, deterministic ids,
+          and persistent state.
+        </li>
+        <li>
+          <a href="https://service.mattel.com/instruction_sheets/JMM20_DOM.pdf"
+            >Mattel’s 2025 Skip-Bo instructions</a
+          >
+          for which piles and card sources are public during multiplayer play.
+        </li>
+      </ul>
+
+      <footer>
+        Previous:
+        <a href="./0005-building-a-playable-client-around-an-authoritative-engine.html"
+          >Building a playable client around an authoritative engine</a
+        >. Trace one command from HTTP to persisted snapshot, and ask the agent
+        about any authority or information boundary that remains unclear.
+      </footer>
+    </main>
+  </body>
+</html>

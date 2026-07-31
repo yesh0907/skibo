@@ -1,4 +1,11 @@
-import type { JoinRoomRequest, RoomState } from "../shared/room-state";
+import type {
+  CommandResult,
+  GameView,
+  JoinResult,
+  JoinRoomRequest,
+  RoomState,
+  StartGameRequest,
+} from "../shared/room-state";
 
 const DEFAULT_API_BASE_URL =
   process.env.SKIBO_API_BASE_URL ?? "http://127.0.0.1:8787";
@@ -14,9 +21,9 @@ function printUsage(): void {
 Usage:
   bun run cli create
   bun run cli join <gameId> <playerName>
-  bun run cli start <gameId>
-  bun run cli pass-turn <gameId>
-  bun run cli state <gameId>
+  bun run cli start <gameId> <playerToken> [stockPileSize]
+  bun run cli state <gameId> <playerToken>
+  bun run cli command <gameId> <playerToken> <commandNumber>
 
 Environment:
   SKIBO_API_BASE_URL  Defaults to ${DEFAULT_API_BASE_URL}`);
@@ -74,7 +81,7 @@ async function main(): Promise<void> {
       const body: JoinRoomRequest = { playerName };
 
       printJson(
-        await requestJson<RoomState>(`/api/games/${gameId}/join`, {
+        await requestJson<JoinResult>(`/api/games/${gameId}/join`, {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify(body),
@@ -85,21 +92,21 @@ async function main(): Promise<void> {
 
     case "start": {
       const gameId = requireArg(args[0], "gameId");
+      const playerToken = requireArg(args[1], "playerToken");
+      const stockPileSize =
+        args[2] === undefined
+          ? undefined
+          : requirePositiveInteger(args[2], "stockPileSize");
+      const body: StartGameRequest = { stockPileSize };
 
       printJson(
-        await requestJson<RoomState>(`/api/games/${gameId}/start`, {
+        await requestJson<GameView>(`/api/games/${gameId}/start`, {
           method: "POST",
-        }),
-      );
-      return;
-    }
-
-    case "pass-turn": {
-      const gameId = requireArg(args[0], "gameId");
-
-      printJson(
-        await requestJson<RoomState>(`/api/games/${gameId}/pass-turn`, {
-          method: "POST",
+          headers: {
+            authorization: `Bearer ${playerToken}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify(body),
         }),
       );
       return;
@@ -107,8 +114,40 @@ async function main(): Promise<void> {
 
     case "state": {
       const gameId = requireArg(args[0], "gameId");
+      const playerToken = requireArg(args[1], "playerToken");
 
-      printJson(await requestJson<RoomState>(`/api/games/${gameId}/state`));
+      printJson(
+        await requestJson<GameView>(
+          `/api/games/${gameId}/state`,
+          { headers: { authorization: `Bearer ${playerToken}` } },
+        ),
+      );
+      return;
+    }
+
+    case "command": {
+      const gameId = requireArg(args[0], "gameId");
+      const playerToken = requireArg(args[1], "playerToken");
+      const commandNumber = requirePositiveInteger(args[2], "commandNumber");
+      const view = await requestJson<GameView>(
+        `/api/games/${gameId}/state`,
+        { headers: { authorization: `Bearer ${playerToken}` } },
+      );
+      const command = view.legalCommands[commandNumber - 1];
+      if (command === undefined) {
+        throw new Error("commandNumber does not identify a legal command");
+      }
+
+      printJson(
+        await requestJson<CommandResult>(`/api/games/${gameId}/commands`, {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${playerToken}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({ command }),
+        }),
+      );
       return;
     }
 
@@ -116,6 +155,17 @@ async function main(): Promise<void> {
       throw new Error(`Unknown command: ${command}`);
     }
   }
+}
+
+function requirePositiveInteger(
+  value: string | undefined,
+  name: string,
+): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    throw new Error(`${name} must be a positive integer`);
+  }
+  return parsed;
 }
 
 await main().catch((error: unknown) => {

@@ -220,6 +220,16 @@ export function getLegalCommands(gameState: GameState): Command[] {
   return getLegalCommandsForValidState(gameState);
 }
 
+export function isCommandLegal(
+  gameState: GameState,
+  command: Command,
+): boolean {
+  assertValidGameState(gameState);
+  return getLegalCommandsForValidState(gameState).some((legal) =>
+    commandsEqual(legal, command),
+  );
+}
+
 function getLegalCommandsForValidState(gameState: GameState): Command[] {
   if (gameState.isGameOver) {
     return [];

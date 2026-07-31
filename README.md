@@ -33,7 +33,8 @@ rules, and tradeoffs as the system grows.
 ## Project Notes
 
 - This repo is intentionally starting simple
-- The first milestone is a playable CLI version, not a browser UI
+- The completed CLI milestone remains a diagnostic tool; the next playable
+  product checkpoint is the browser UI
 - The main implementation plan lives in `docs/implementation-plan.md`
 
 ## Setup
@@ -62,3 +63,26 @@ bun run simulate -- --seed 42 --stock 5 Ada Grace
 The simulator uses the real legal-command and transition APIs. Change the seed
 to explore another reproducible game, or omit the options for a quick default
 run. Use `--stock 30` for the standard two-player stock size.
+
+## Test The Multiplayer Backend
+
+Start the local Worker:
+
+```bash
+bun run dev
+```
+
+In another terminal, create and exercise a room:
+
+```bash
+bun run cli create
+bun run cli join <gameId> Alice
+bun run cli join <gameId> Bob
+bun run cli start <gameId> <alicePlayerToken> 5
+bun run cli state <gameId> <alicePlayerToken>
+bun run cli command <gameId> <alicePlayerToken> 1
+```
+
+Each join response contains a server-issued player token. Each player uses
+their token to receive a private view containing their own hand, public pile
+state, and exact legal commands only when it is their turn.
