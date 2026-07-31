@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Building a Playable Client Around an Authoritative Engine</title>
+    <link rel="stylesheet" href="../assets/lesson.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <div class="kicker">Skip-Bo Engine · Lesson 0005</div>
+        <h1>Building a playable client around an authoritative engine</h1>
+        <p class="lead">
+          The terminal owns presentation and choice; the engine remains the
+          only authority on which commands are legal and what they do.
+        </p>
+        <div class="meta">Completed slice: local human-versus-bot CLI</div>
+      </header>
+
+      <h2>The client loop has four jobs</h2>
+      <div class="flow" aria-label="Interactive client loop">
+        <div>
+          <strong>Render</strong>
+          Turn canonical state into build piles, hand cards, stock, discards,
+          and opponent stock counts.
+        </div>
+        <div>
+          <strong>Choose</strong>
+          Present exact legal commands and map one numbered answer back to the
+          original command value.
+        </div>
+        <div>
+          <strong>Resolve</strong>
+          Send the selected command through <code>resolveCommand</code> and
+          render the returned snapshot.
+        </div>
+      </div>
+
+      <pre><code>const commands = getLegalCommands(state)
+const selected = commands[userChoice - 1]
+state = resolveCommand(selected, state, { random }).nextState</code></pre>
+
+      <h2>Display text is not a command language</h2>
+      <p>
+        The CLI describes commands for a human, but it does not parse that text
+        back into gameplay instructions. A numbered option retains the original
+        discriminated-union value from the engine. This avoids creating a
+        second, string-based rules boundary that could disagree with command
+        validation.
+      </p>
+
+      <div class="callout">
+        <strong>Boundary rule:</strong> clients may choose among legal commands;
+        they do not decide legality. The same rule will apply when the local
+        human and bot are replaced by remote multiplayer clients.
+      </div>
+
+      <h2>Human policy and bot policy are peers</h2>
+      <p>
+        On a human turn, the client waits for a numbered choice. On a bot turn,
+        the existing deterministic simulation policy chooses from the same
+        legal-command array. Both choices pass through the same resolver,
+        invariant checks, draw behavior, turn transition, and win detection.
+      </p>
+
+      <h2>Terminal I/O is injected</h2>
+      <p>
+        <code>playLocalGame(...)</code> receives asynchronous
+        <code>readLine</code> and synchronous <code>writeLine</code> functions.
+        The real adapter uses the terminal; tests supply small in-memory
+        functions. Tests can therefore exercise invalid input, a human win, and
+        bot-to-human handoff without mocking engine internals or launching a
+        fragile pseudo-terminal.
+      </p>
+
+      <h2>Run the playable checkpoint</h2>
+      <pre><code>bun run play -- --seed 42 --stock 5 --name Yesh</code></pre>
+      <p>
+        Enter a listed number to act or <code>q</code> to quit. Five stock cards
+        make a fast test game; changing the seed gives another reproducible
+        deal.
+      </p>
+
+      <h2>Retrieve before revealing</h2>
+      <details>
+        <summary>Why retain the original command behind each number?</summary>
+        <p>
+          It prevents display wording and parsing logic from becoming another
+          representation of the game rules.
+        </p>
+      </details>
+      <details>
+        <summary>What changes when play moves to the Durable Object?</summary>
+        <p>
+          The chooser becomes a remote player and snapshots cross a transport
+          boundary, but legal-command calculation and resolution remain engine
+          responsibilities.
+        </p>
+      </details>
+      <details>
+        <summary>Why inject terminal input and output?</summary>
+        <p>
+          The interaction workflow becomes testable through its public boundary
+          while the actual terminal adapter stays very small.
+        </p>
+      </details>
+
+      <h2>Primary sources</h2>
+      <ul>
+        <li>
+          <a href="https://service.mattel.com/instruction_sheets/JMM20_DOM.pdf"
+            >Mattel’s 2025 Skip-Bo instructions</a
+          >
+          for the visible piles, playable sources, turn ending, and winning
+          behavior exposed by the client.
+        </li>
+        <li>
+          <a href="https://bun.sh/docs/test/writing-tests"
+            >Bun: Writing tests</a
+          >
+          for the interaction and process-boundary tests around the CLI.
+        </li>
+      </ul>
+
+      <footer>
+        Previous:
+        <a href="./0004-testing-the-engine-through-complete-games.html"
+          >Testing the engine through complete games</a
+        >. Play another saved seed after a delay, and ask the agent about any
+        client or engine boundary that remains unclear.
+      </footer>
+    </main>
+  </body>
+</html>

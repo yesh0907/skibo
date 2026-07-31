@@ -49,7 +49,7 @@ export function simulateGame(
   let turnCount = 0;
 
   while (!state.isGameOver && commandCount < maxCommands) {
-    const command = chooseCommand(state);
+    const command = chooseSimulationCommand(state);
     if (command === undefined) {
       return {
         status: "noLegalCommand",
@@ -96,7 +96,9 @@ export function createSeededRandom(seed: number): () => number {
   };
 }
 
-function chooseCommand(state: GameState): Command | undefined {
+export function chooseSimulationCommand(
+  state: GameState,
+): Command | undefined {
   const commands = getLegalCommands(state);
   const playCommands = commands.filter(
     (command): command is PlayCardCommand => command.type === "playCard",

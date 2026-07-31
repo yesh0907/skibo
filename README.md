@@ -44,6 +44,15 @@ bun install
 
 ## Test The Engine
 
+Play a short local game against the bot:
+
+```bash
+bun run play -- --seed 42 --stock 5 --name Yesh
+```
+
+Choose from the numbered legal commands shown each turn. Enter `q` to stop.
+The seed makes the initial game and later shuffles reproducible.
+
 Run a complete deterministic short game locally:
 
 ```bash

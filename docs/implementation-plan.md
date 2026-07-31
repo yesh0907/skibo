@@ -42,6 +42,8 @@
   - injected the shuffle source into command resolution so recycling behavior is deterministic under test
   - added a deterministic whole-game simulator that chooses only from exact legal commands and reports winners or bounded diagnostic stops
   - exposed the simulator through a Bun CLI command for reproducible short and standard-stock engine playthroughs
+  - added a playable local human-versus-bot CLI that renders canonical state and presents exact legal commands as numbered choices
+  - kept terminal input, human choice, and bot policy outside the rules engine while routing every selected command through the same resolver
 
 ## Working Agreement
 
@@ -439,6 +441,7 @@ The next concrete implementation step is to finish Phase 1:
 - complete official turn-transition and win-condition coverage
 - use exact legal commands as the shared source for validation and client choices
 - integrate the verified engine state and command loop into the Durable Object
+- replace the local bot boundary with remote player commands after engine integration
 
 Supporting scaffolding now exists for the completed Phase 0 spike:
 
