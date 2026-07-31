@@ -3,6 +3,11 @@
   "name": "skibo",
   "main": "src/worker/index.ts",
   "compatibility_date": "2026-04-08",
+  "assets": {
+    "directory": "./public",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
   "durable_objects": {
     "bindings": [
       {

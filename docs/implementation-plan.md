@@ -2,8 +2,8 @@
 
 ## Status
 
-- Current phase: Phase 2 Real Game Durable Object complete
-- Current focus: build a minimal playable web UI against the authoritative HTTP game API
+- Current phase: Phase 3 Playable Web UI complete
+- Current focus: test and refine the browser gameplay loop before adding real-time transport
 - Progress:
   - established project goals and collaboration model
   - chose a CLI-first architecture
@@ -53,6 +53,14 @@
   - filtered next-player draw effects so private card values cannot bypass view projection
   - required explicit room initialization so arbitrary game ids cannot create persisted Durable Objects
   - capped waiting rooms at the official six-player maximum and rejected incompatible legacy snapshots
+  - served a responsive browser client and the game API from the same Worker using Cloudflare Static Assets
+  - added create, join, waiting-room, short-game start, refresh, and leave flows
+  - persisted each player token in per-tab session storage so two tabs can represent two players while surviving refreshes
+  - rendered player-specific hands, stock piles, discard piles, shared build piles, opponent public state, and game completion
+  - drove source selection and action presentation directly from the server-provided exact legal commands
+  - added HTTP polling for opponent turns as the temporary update transport
+  - verified a real two-browser create, join, start, card-selection flow at desktop and mobile sizes
+  - caught and fixed a browser-only hand-rendering failure through the end-to-end interaction check
 
 ## Working Agreement
 
@@ -447,13 +455,14 @@ For this project, a good mental shortcut is:
 
 ## Immediate Next Step
 
-The next concrete implementation step is to begin the playable web surface:
+The next concrete implementation step is to playtest and refine the browser
+workflow, then replace polling with real-time updates:
 
-- complete official turn-transition and win-condition coverage
-- build a minimal game table from the player-specific `GameView`
-- support create, join, start, refresh, and command submission through HTTP
-- keep exact legal commands as the browser's action source
-- add polling first, then WebSockets after the browser workflow is playable
+- run complete short games between two browser tabs and capture usability gaps
+- improve finished-game and recoverable connection states where playtesting exposes friction
+- add a Worker WebSocket upgrade route and authenticate the connection
+- register sockets with the game Durable Object and broadcast after persisted moves
+- preserve HTTP commands and player-specific `GameView` projection as the authority boundary
 
 Supporting scaffolding now exists for the completed Phase 0 spike:
 

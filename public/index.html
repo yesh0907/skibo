@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="A playable multiplayer Skip-Bo table backed by one authoritative Durable Object."
+    />
+    <title>Skibo Table</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <script type="module" src="/app.js"></script>
+  </head>
+  <body>
+    <header class="app-header">
+      <a class="brand" href="/" aria-label="Skibo home">
+        <span class="brand-cards" aria-hidden="true">
+          <span>1</span><span>S</span><span>3</span>
+        </span>
+        <span>
+          <strong>SKIBO</strong>
+          <small>multiplayer table</small>
+        </span>
+      </a>
+      <div class="header-actions" id="header-actions" hidden>
+        <span class="game-code" id="game-code"></span>
+        <button class="icon-button" id="copy-game" type="button" title="Copy game code" aria-label="Copy game code">
+          <span aria-hidden="true">⧉</span>
+        </button>
+        <button class="icon-button" id="refresh-game" type="button" title="Refresh game" aria-label="Refresh game">
+          <span aria-hidden="true">↻</span>
+        </button>
+        <button class="quiet-button" id="leave-game" type="button">Leave</button>
+      </div>
+    </header>
+
+    <main id="app" aria-live="polite">
+      <section class="entry-shell" id="entry-view">
+        <div class="entry-heading">
+          <p class="eyebrow">Local multiplayer preview</p>
+          <h1>Pull up a seat.</h1>
+          <p>Create a table or join one with a game code.</p>
+        </div>
+
+        <div class="entry-grid">
+          <form class="entry-panel" id="create-form">
+            <div>
+              <p class="step-number">01</p>
+              <h2>Create a game</h2>
+            </div>
+            <label>
+              Your name
+              <input name="playerName" autocomplete="nickname" maxlength="24" placeholder="Yesh" required />
+            </label>
+            <button class="primary-button" type="submit">Create table</button>
+          </form>
+
+          <form class="entry-panel" id="join-form">
+            <div>
+              <p class="step-number">02</p>
+              <h2>Join a game</h2>
+            </div>
+            <label>
+              Game code
+              <input name="gameId" autocomplete="off" placeholder="game_..." required />
+            </label>
+            <label>
+              Your name
+              <input name="playerName" autocomplete="nickname" maxlength="24" placeholder="Player two" required />
+            </label>
+            <button class="secondary-button" type="submit">Join table</button>
+          </form>
+        </div>
+      </section>
+
+      <section class="waiting-view" id="waiting-view" hidden>
+        <div class="waiting-copy">
+          <p class="eyebrow">Waiting room</p>
+          <h1>The table is open.</h1>
+          <p>Share the game code. The first joined player takes the first turn.</p>
+        </div>
+        <div class="waiting-roster" id="waiting-roster"></div>
+        <div class="waiting-controls">
+          <label>
+            Game length
+            <select id="stock-size">
+              <option value="5">Quick test · 5 stock cards</option>
+              <option value="30">Standard · 30 stock cards</option>
+            </select>
+          </label>
+          <button class="primary-button" id="start-game" type="button">Start game</button>
+        </div>
+      </section>
+
+      <section class="game-view" id="game-view" hidden>
+        <div class="turn-bar">
+          <div>
+            <p class="eyebrow" id="turn-label">Current turn</p>
+            <h1 id="turn-name"></h1>
+          </div>
+          <div class="connection-state" id="connection-state">Connected</div>
+        </div>
+
+        <section class="opponents-zone" aria-label="Opponents" id="opponents-zone"></section>
+
+        <section class="table-zone" aria-label="Shared build piles">
+          <div class="table-meta">
+            <span id="deck-count"></span>
+            <span id="completed-count"></span>
+          </div>
+          <div class="build-piles" id="build-piles"></div>
+        </section>
+
+        <section class="player-zone" aria-label="Your cards">
+          <div class="player-summary">
+            <div>
+              <p class="eyebrow">Your cards</p>
+              <h2 id="viewer-name"></h2>
+            </div>
+            <p id="turn-guidance"></p>
+          </div>
+
+          <div class="personal-piles">
+            <div class="stock-area">
+              <span class="zone-label">Stock</span>
+              <div id="your-stock"></div>
+            </div>
+            <div class="discard-area">
+              <span class="zone-label">Discards</span>
+              <div class="discard-piles" id="your-discards"></div>
+            </div>
+          </div>
+
+          <div class="hand-area">
+            <span class="zone-label">Hand</span>
+            <div class="hand" id="your-hand"></div>
+          </div>
+        </section>
+
+        <section class="action-tray" id="action-tray" hidden aria-label="Available actions">
+          <div>
+            <p class="eyebrow">Selected card</p>
+            <h2 id="selected-card-label"></h2>
+          </div>
+          <div class="action-options" id="action-options"></div>
+          <button class="icon-button" id="cancel-selection" type="button" title="Cancel selection" aria-label="Cancel selection">×</button>
+        </section>
+      </section>
+    </main>
+
+    <div class="toast" id="toast" role="status" hidden></div>
+  </body>
+</html>

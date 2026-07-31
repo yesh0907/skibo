@@ -1,6 +1,7 @@
 # skibo
 
-Multiplayer Skip-Bo built on Cloudflare, starting with a CLI-first experience so we can focus on game rules, Durable Objects, and real-time coordination before building a web UI.
+Multiplayer Skip-Bo built on Cloudflare with a pure rules engine, one
+authoritative Durable Object per game, and a playable browser client.
 
 ## Aim
 
@@ -43,6 +44,22 @@ rules, and tradeoffs as the system grows.
 bun install
 ```
 
+## Play In The Browser
+
+Start the local Worker:
+
+```bash
+bun run dev
+```
+
+Open the URL Wrangler prints, normally `http://localhost:8787`. Create a table
+in one browser tab, copy its game code, then join from a second tab. Each tab
+keeps its own player token for the duration of that tab, including refreshes.
+Choose the 5-card stock option for a quick test game.
+
+On your turn, select a highlighted hand, stock, or discard card. The action tray
+shows only the exact commands accepted by the authoritative game engine.
+
 ## Test The Engine
 
 Play a short local game against the bot:
@@ -64,7 +81,7 @@ The simulator uses the real legal-command and transition APIs. Change the seed
 to explore another reproducible game, or omit the options for a quick default
 run. Use `--stock 30` for the standard two-player stock size.
 
-## Test The Multiplayer Backend
+## Test The Multiplayer Backend Directly
 
 Start the local Worker:
 

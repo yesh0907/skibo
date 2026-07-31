@@ -16,6 +16,8 @@
   Language reference for the production random-number source injected into deck shuffling.
 - [Cloudflare: Rules of Durable Objects](https://developers.cloudflare.com/durable-objects/best-practices/rules-of-durable-objects/)
   Primary platform guidance for per-game coordination, deterministic routing, and persistent state.
+- [Cloudflare: Workers Static Assets](https://developers.cloudflare.com/workers/static-assets/)
+  Primary platform guidance for serving the browser client and Worker API from one deployment.
 
 ## Wisdom (Communities)
 

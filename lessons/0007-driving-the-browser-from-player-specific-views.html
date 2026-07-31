@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Driving the Browser From Player-Specific Views</title>
+    <link rel="stylesheet" href="../assets/lesson.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <div class="kicker">Skip-Bo Web Client · Lesson 0007</div>
+        <h1>Driving the browser from player-specific views</h1>
+        <p class="lead">
+          The browser now renders one safe projection of the game and turns the
+          server's exact legal commands into clickable choices.
+        </p>
+        <div class="meta">Completed slice: playable browser table</div>
+      </header>
+
+      <h2>The view is the client contract</h2>
+      <p>
+        The canonical <code>GameState</code> remains inside the Durable Object.
+        The browser receives a <code>GameView</code> derived for one authenticated
+        player: their own hand, public piles and counts, current turn, and exact
+        legal commands. Opponent hands and draw-deck contents never cross the
+        network boundary.
+      </p>
+
+      <div class="flow" aria-label="Browser command flow">
+        <div>
+          <strong>Project</strong>
+          The Durable Object derives one private <code>GameView</code> after
+          authentication.
+        </div>
+        <div>
+          <strong>Render</strong>
+          The browser displays that view and highlights only sources present in
+          <code>legalCommands</code>.
+        </div>
+        <div>
+          <strong>Submit</strong>
+          Selecting a source reveals exact commands; choosing one sends the
+          command back unchanged.
+        </div>
+      </div>
+
+      <pre><code>selectedSource
+  → view.legalCommands.filter(command =&gt;
+      sameSource(command.source, selectedSource))
+  → action buttons
+  → POST /api/games/:gameId/commands
+  → room.playCommand(playerToken, command)</code></pre>
+
+      <h2>The UI does not calculate Skip-Bo rules</h2>
+      <p>
+        A hand card is actionable only when at least one server-provided command
+        names its source index. The action tray then lists each exact destination:
+        a build pile for <code>playCard</code>, or a personal discard pile for
+        <code>discardCard</code>. This source-first interaction is useful UX, but
+        it introduces no second rules implementation.
+      </p>
+      <div class="callout">
+        <strong>Correctness boundary:</strong> disabling an illegal control is a
+        convenience. The Durable Object and engine still authenticate and
+        validate every submitted command because browser state is untrusted.
+      </div>
+
+      <h2>One deployment serves UI and API</h2>
+      <p>
+        Cloudflare Static Assets serves <code>index.html</code>, CSS, and the
+        browser module from the same origin as the Worker API. Requests under
+        <code>/api/*</code> run through the Worker first. The client therefore
+        uses relative URLs and needs no cross-origin configuration.
+      </p>
+
+      <h2>Identity is per tab</h2>
+      <p>
+        A successful join stores the server-issued player token in
+        <code>sessionStorage</code>. Refreshing the tab restores that player's
+        private view, while a second tab can join as a different player. The
+        token travels only in an <code>Authorization: Bearer</code> header.
+      </p>
+
+      <h2>Polling is a transport, not authority</h2>
+      <p>
+        Each tab currently refreshes its <code>GameView</code> every 2.5 seconds.
+        Commands still use HTTP and the Durable Object still serializes changes.
+        Replacing polling with WebSocket notifications will improve latency, but
+        it will not change the view or command contracts.
+      </p>
+
+      <h2>Browser checks catch browser failures</h2>
+      <p>
+        Unit checks confirmed the expected HTML, bearer header, session storage,
+        and responsive CSS. A real two-context browser check then created a
+        table, joined a second player, started a short game, selected a card, and
+        inspected desktop and phone layouts. It caught an empty CSS class passed
+        to <code>classList.add</code>, an exception that static artifact checks
+        could not expose.
+      </p>
+
+      <h2>Retrieve before revealing</h2>
+      <details>
+        <summary>Why send exact commands instead of available action names?</summary>
+        <p>
+          A label such as “play card” omits the legal source and destination.
+          Exact commands let the UI render complete valid choices without
+          recreating rule predicates.
+        </p>
+      </details>
+      <details>
+        <summary>Why use session storage instead of local storage?</summary>
+        <p>
+          It survives refresh but stays isolated per tab, which makes two-player
+          testing possible in one browser without sharing one player's token.
+        </p>
+      </details>
+      <details>
+        <summary>What changes when WebSockets arrive?</summary>
+        <p>
+          The server can notify clients immediately after persistence. HTTP
+          remains suitable for commands, and clients still render refreshed
+          player-specific views.
+        </p>
+      </details>
+
+      <h2>Primary source</h2>
+      <ul>
+        <li>
+          <a href="https://developers.cloudflare.com/workers/static-assets/"
+            >Cloudflare: Workers Static Assets</a
+          >
+          for asset directories, single-page fallback, and Worker-first API
+          routing.
+        </li>
+      </ul>
+
+      <footer>
+        Previous:
+        <a href="./0006-making-the-durable-object-the-game-authority.html"
+          >Making the Durable Object the game authority</a
+        >. Trace one selected card from <code>GameView.legalCommands</code> to
+        the submitted command, and ask the agent about any client-authority
+        boundary that remains unclear.
+      </footer>
+    </main>
+  </body>
+</html>
