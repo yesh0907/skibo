@@ -61,6 +61,13 @@
   - added HTTP polling for opponent turns as the temporary update transport
   - verified a real two-browser create, join, start, card-selection flow at desktop and mobile sizes
   - caught and fixed a browser-only hand-rendering failure through the end-to-end interaction check
+  - replaced the command action tray with mouse-and-touch pointer dragging onto exact legal destinations
+  - derived glowing drop targets directly from server-provided legal commands instead of recreating rule predicates
+  - displayed the effective sequence value on wild cards after they enter a build pile
+  - rendered each opponent's public stock top as a visible card with its remaining count
+  - added 10, 15, 20, and 25-card game lengths and disabled sizes that cannot fit the joined roster
+  - made terminal games unmistakable with a full-screen winner or loser result overlay
+  - verified drag interaction and a complete networked game through the winner state in a real browser
 
 ## Working Agreement
 
@@ -455,11 +462,11 @@ For this project, a good mental shortcut is:
 
 ## Immediate Next Step
 
-The next concrete implementation step is to playtest and refine the browser
-workflow, then replace polling with real-time updates:
+The next concrete implementation step is to continue playtesting the revised
+browser workflow, then replace polling with real-time updates:
 
-- run complete short games between two browser tabs and capture usability gaps
-- improve finished-game and recoverable connection states where playtesting exposes friction
+- run complete short games between two people and capture the next usability gaps
+- add keyboard-accessible direct manipulation without reintroducing the old action tray
 - add a Worker WebSocket upgrade route and authenticate the connection
 - register sockets with the game Durable Object and broadcast after persisted moves
 - preserve HTTP commands and player-specific `GameView` projection as the authority boundary

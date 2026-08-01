@@ -2,7 +2,7 @@ const state = {
   gameId: null,
   playerToken: null,
   view: null,
-  selectedSource: null,
+  drag: null,
   pollTimer: null,
   busy: false,
 };
@@ -28,9 +28,9 @@ const elements = {
   yourStock: document.querySelector("#your-stock"),
   yourDiscards: document.querySelector("#your-discards"),
   yourHand: document.querySelector("#your-hand"),
-  actionTray: document.querySelector("#action-tray"),
-  selectedCardLabel: document.querySelector("#selected-card-label"),
-  actionOptions: document.querySelector("#action-options"),
+  winnerOverlay: document.querySelector("#winner-overlay"),
+  winnerTitle: document.querySelector("#winner-title"),
+  winnerMessage: document.querySelector("#winner-message"),
   toast: document.querySelector("#toast"),
 };
 
@@ -40,7 +40,7 @@ document.querySelector("#start-game").addEventListener("click", startGame);
 document.querySelector("#refresh-game").addEventListener("click", refreshView);
 document.querySelector("#copy-game").addEventListener("click", copyGameCode);
 document.querySelector("#leave-game").addEventListener("click", leaveGame);
-document.querySelector("#cancel-selection").addEventListener("click", clearSelection);
+document.querySelector("#winner-leave").addEventListener("click", leaveGame);
 
 restoreSession();
 
@@ -88,13 +88,12 @@ async function startGame() {
       headers: authorizedHeaders(true),
       body: JSON.stringify({ stockPileSize }),
     });
-    clearSelection();
     render();
   });
 }
 
 async function refreshView() {
-  if (!state.gameId || !state.playerToken || state.busy) return;
+  if (!state.gameId || !state.playerToken || state.busy || state.drag) return;
   try {
     elements.connectionState.textContent = "Refreshing";
     state.view = await api(`/api/games/${state.gameId}/state`, {
@@ -115,7 +114,6 @@ async function submitCommand(command) {
       body: JSON.stringify({ command }),
     });
     state.view = result.view;
-    clearSelection();
     render();
   });
 }
@@ -145,6 +143,16 @@ function renderWaitingRoom() {
       return row;
     }),
   );
+  const playerCount = state.view.players.length;
+  const feasibleSizes = [...elements.stockSize.options].filter(
+    (option) => playerCount * (Number(option.value) + 5) <= 162,
+  );
+  for (const option of elements.stockSize.options) {
+    option.disabled = !feasibleSizes.includes(option);
+  }
+  if (elements.stockSize.selectedOptions[0]?.disabled) {
+    elements.stockSize.value = feasibleSizes.at(-1)?.value ?? "5";
+  }
   elements.startGame.disabled = state.view.players.length < 2 || state.busy;
 }
 
@@ -164,7 +172,7 @@ function renderGame() {
         ? "You cleared your stock pile."
         : `${view.currentPlayerName} cleared their stock pile.`
       : view.isYourTurn
-        ? "Choose a highlighted card, then select an exact legal action."
+        ? "Drag a highlighted card onto a glowing destination."
         : `Waiting for ${view.currentPlayerName}. The table refreshes automatically.`;
 
   elements.deckCount.textContent = `${view.deckCount} in draw deck`;
@@ -172,7 +180,7 @@ function renderGame() {
   renderOpponents(opponents, view.currentPlayerName);
   renderBuildPiles(view.buildPiles);
   renderYourCards(viewer);
-  renderActionTray();
+  renderWinner();
 }
 
 function renderOpponents(opponents, currentPlayerName) {
@@ -180,15 +188,28 @@ function renderOpponents(opponents, currentPlayerName) {
     ...opponents.map((player) => {
       const node = document.createElement("article");
       node.className = "opponent";
+      const stock = document.createElement("div");
+      stock.className = "opponent-stock";
+      if (player.stockTopCard !== null) {
+        const card = createCard(player.stockTopCard);
+        const count = document.createElement("span");
+        count.className = "card-count";
+        count.textContent = String(player.stockCount);
+        card.append(count);
+        stock.append(card);
+      }
+      const details = document.createElement("div");
+      details.className = "opponent-details";
       const discards = player.discardPiles
         .map((pile, index) => `${index + 1}:${formatCard(top(pile))}`)
         .join(" · ");
-      node.innerHTML = `
+      details.innerHTML = `
         <strong>${escapeHtml(player.name)}</strong>
         <span class="opponent-turn">${player.name === currentPlayerName ? "Playing" : ""}</span>
-        <span>${player.stockCount} stock · top ${formatCard(player.stockTopCard)}</span>
+        <span>${player.stockCount} cards in stock</span>
         <span class="mini-piles">Discards ${discards}</span>
       `;
+      node.append(stock, details);
       return node;
     }),
   );
@@ -199,9 +220,12 @@ function renderBuildPiles(piles) {
     ...piles.map((pile, index) => {
       const slot = document.createElement("div");
       slot.className = "pile-slot";
-      slot.dataset.destinationIndex = String(index);
+      slot.dataset.dropType = "build";
+      slot.dataset.dropIndex = String(index);
       const cardValue = top(pile);
-      if (cardValue !== null) slot.append(createCard(cardValue));
+      if (cardValue !== null) {
+        slot.append(createCard(cardValue, false, cardValue === 0 ? pile.length : null));
+      }
       const label = document.createElement("span");
       label.className = "pile-index";
       label.textContent = `BUILD ${index + 1}`;
@@ -225,6 +249,8 @@ function renderYourCards(viewer) {
     ...viewer.discardPiles.map((pile, index) => {
       const slot = document.createElement("div");
       slot.className = "pile-slot";
+      slot.dataset.dropType = "discard";
+      slot.dataset.dropIndex = String(index);
       const cardValue = top(pile);
       if (cardValue !== null) {
         slot.append(createSourceCard(cardValue, { type: "discardPile", index }));
@@ -261,9 +287,12 @@ function createSourceCard(value, source, count, extraClass = "") {
   card.dataset.source = JSON.stringify(source);
   const commands = commandsForSource(source);
   card.disabled = commands.length === 0 || state.busy;
-  if (commands.length > 0) card.classList.add("actionable");
-  if (sameSource(source, state.selectedSource)) card.classList.add("selected");
-  card.addEventListener("click", () => selectSource(source));
+  if (commands.length > 0) {
+    card.classList.add("actionable");
+    card.addEventListener("pointerdown", (event) =>
+      beginDrag(event, card, source, commands),
+    );
+  }
   if (count !== undefined) {
     const badge = document.createElement("span");
     badge.className = "card-count";
@@ -273,45 +302,23 @@ function createSourceCard(value, source, count, extraClass = "") {
   return card;
 }
 
-function createCard(value, button = false) {
+function createCard(value, button = false, assignedValue = null) {
   const card = document.createElement(button ? "button" : "div");
   card.className = `card${value === 0 ? " wild" : ""}`;
   if (button) {
     card.type = "button";
-    card.setAttribute("aria-label", value === 0 ? "Skip-Bo wild card" : `Card ${value}`);
+    card.setAttribute(
+      "aria-label",
+      value === 0 ? "Drag Skip-Bo wild card" : `Drag card ${value}`,
+    );
   }
+  const displayValue = assignedValue ?? (value === 0 ? "S" : value);
   card.innerHTML = `
     <span class="card-corner">${value === 0 ? "S" : value}</span>
-    <span class="card-value">${value === 0 ? "S" : value}</span>
+    <span class="card-value">${displayValue}</span>
+    ${assignedValue === null ? "" : '<span class="wild-label">WILD</span>'}
   `;
   return card;
-}
-
-function selectSource(source) {
-  state.selectedSource = sameSource(source, state.selectedSource) ? null : source;
-  renderGame();
-}
-
-function renderActionTray() {
-  const commands = state.selectedSource ? commandsForSource(state.selectedSource) : [];
-  elements.actionTray.hidden = commands.length === 0;
-  if (commands.length === 0) return;
-
-  const selected = commands[0];
-  elements.selectedCardLabel.textContent = describeSource(selected);
-  elements.actionOptions.replaceChildren(
-    ...commands.map((command) => {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = `action-button${command.type === "discardCard" ? " discard" : ""}`;
-      button.textContent =
-        command.type === "playCard"
-          ? `Play on build ${command.destinationIndex + 1}`
-          : `Discard to pile ${command.discardPileIndex + 1}`;
-      button.addEventListener("click", () => submitCommand(command));
-      return button;
-    }),
-  );
 }
 
 function commandsForSource(source) {
@@ -324,18 +331,126 @@ function sameSource(left, right) {
   return left.type === "stockPile" || left.index === right.index;
 }
 
-function describeSource(command) {
-  const value = formatCard(command.cardValue);
-  if (command.source.type === "stockPile") return `Stock card ${value}`;
-  if (command.source.type === "discardPile") {
-    return `Discard pile ${command.source.index + 1} · ${value}`;
-  }
-  return `Hand card ${command.source.index + 1} · ${value}`;
+function beginDrag(event, card, source, commands) {
+  if (event.button !== 0 || state.busy) return;
+  event.preventDefault();
+  card.setPointerCapture(event.pointerId);
+  state.drag = {
+    pointerId: event.pointerId,
+    source,
+    commands,
+    origin: card,
+    startX: event.clientX,
+    startY: event.clientY,
+    ghost: null,
+  };
+  card.addEventListener("pointermove", moveDrag);
+  card.addEventListener("pointerup", finishDrag, { once: true });
+  card.addEventListener("pointercancel", cancelDrag, { once: true });
 }
 
-function clearSelection() {
-  state.selectedSource = null;
-  elements.actionTray.hidden = true;
+function moveDrag(event) {
+  const drag = state.drag;
+  if (!drag || drag.pointerId !== event.pointerId) return;
+  if (
+    drag.ghost === null &&
+    Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) < 6
+  ) {
+    return;
+  }
+  if (drag.ghost === null) {
+    drag.ghost = drag.origin.cloneNode(true);
+    drag.ghost.classList.add("drag-ghost");
+    drag.ghost.removeAttribute("id");
+    document.body.append(drag.ghost);
+    drag.origin.classList.add("drag-origin");
+    document.body.classList.add("dragging-card");
+    markDropTargets(drag.commands);
+  }
+  drag.ghost.style.transform = `translate3d(${event.clientX}px, ${event.clientY}px, 0) rotate(4deg)`;
+  updateDropHover(event.clientX, event.clientY);
+}
+
+function finishDrag(event) {
+  const drag = state.drag;
+  if (!drag || drag.pointerId !== event.pointerId) return;
+  const destination = document
+    .elementFromPoint(event.clientX, event.clientY)
+    ?.closest("[data-drop-type]");
+  const command = destination
+    ? commandForDrop(
+        drag.commands,
+        destination.dataset.dropType,
+        Number(destination.dataset.dropIndex),
+      )
+    : null;
+  endDrag();
+  if (command) submitCommand(command);
+}
+
+function cancelDrag() {
+  endDrag();
+}
+
+function endDrag() {
+  const drag = state.drag;
+  if (!drag) return;
+  drag.origin.removeEventListener("pointermove", moveDrag);
+  drag.origin.classList.remove("drag-origin");
+  drag.ghost?.remove();
+  document.body.classList.remove("dragging-card");
+  document
+    .querySelectorAll(".drop-allowed, .drop-hover")
+    .forEach((element) => element.classList.remove("drop-allowed", "drop-hover"));
+  state.drag = null;
+}
+
+function markDropTargets(commands) {
+  for (const command of commands) {
+    const type = command.type === "playCard" ? "build" : "discard";
+    const index =
+      command.type === "playCard"
+        ? command.destinationIndex
+        : command.discardPileIndex;
+    document
+      .querySelector(`[data-drop-type="${type}"][data-drop-index="${index}"]`)
+      ?.classList.add("drop-allowed");
+  }
+}
+
+function updateDropHover(x, y) {
+  document
+    .querySelector(".drop-hover")
+    ?.classList.remove("drop-hover");
+  document
+    .elementFromPoint(x, y)
+    ?.closest(".drop-allowed")
+    ?.classList.add("drop-hover");
+}
+
+function commandForDrop(commands, type, index) {
+  return (
+    commands.find((command) =>
+      type === "build"
+        ? command.type === "playCard" && command.destinationIndex === index
+        : command.type === "discardCard" &&
+          command.discardPileIndex === index,
+    ) ?? null
+  );
+}
+
+function renderWinner() {
+  const finished = state.view.status === "finished";
+  elements.winnerOverlay.hidden = !finished;
+  if (!finished) return;
+  const viewerWon = state.view.currentPlayerName === state.view.viewerName;
+  elements.winnerTitle.textContent = viewerWon
+    ? "You won!"
+    : `${state.view.currentPlayerName} wins`;
+  elements.winnerMessage.textContent = viewerWon
+    ? "You cleared your stock pile."
+    : `${state.view.currentPlayerName} cleared their stock pile first.`;
+  window.clearInterval(state.pollTimer);
 }
 
 function startPolling() {
@@ -384,7 +499,7 @@ function leaveGame() {
   state.gameId = null;
   state.playerToken = null;
   state.view = null;
-  clearSelection();
+  endDrag();
   render();
 }
 

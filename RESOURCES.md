@@ -18,6 +18,8 @@
   Primary platform guidance for per-game coordination, deterministic routing, and persistent state.
 - [Cloudflare: Workers Static Assets](https://developers.cloudflare.com/workers/static-assets/)
   Primary platform guidance for serving the browser client and Worker API from one deployment.
+- [MDN: Pointer events](https://developer.mozilla.org/en-US/docs/Web/API/Pointer_events)
+  Primary browser reference for unified mouse, touch, and pen interactions with pointer capture.
 
 ## Wisdom (Communities)
 

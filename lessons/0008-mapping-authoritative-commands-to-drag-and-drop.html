@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Mapping Authoritative Commands to Drag and Drop</title>
+    <link rel="stylesheet" href="../assets/lesson.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <div class="kicker">Skip-Bo Interaction · Lesson 0008</div>
+        <h1>Mapping authoritative commands to drag and drop</h1>
+        <p class="lead">
+          Direct manipulation can feel physical without moving game rules into
+          the browser.
+        </p>
+        <div class="meta">Completed slice: gameplay feedback revision</div>
+      </header>
+
+      <h2>Legal commands form a drop graph</h2>
+      <p>
+        Each source card already has zero or more exact commands. During a drag,
+        the client filters <code>GameView.legalCommands</code> by source, then
+        maps each result to a spatial destination. A <code>playCard</code>
+        command maps to one build pile; a <code>discardCard</code> command maps
+        to one personal discard pile.
+      </p>
+
+      <div class="flow" aria-label="Drag command flow">
+        <div>
+          <strong>Pointer down</strong>
+          Capture the source card and its current exact legal commands.
+        </div>
+        <div>
+          <strong>Pointer move</strong>
+          Highlight only destination elements named by those commands.
+        </div>
+        <div>
+          <strong>Pointer up</strong>
+          Match the destination back to one command and submit it unchanged.
+        </div>
+      </div>
+
+      <pre><code>source card
+  → commandsForSource(source)
+  → markDropTargets(commands)
+  → commandForDrop(commands, dropType, dropIndex)
+  → POST exact command
+  → Durable Object validates again</code></pre>
+
+      <h2>The interaction is not the authority</h2>
+      <p>
+        Glowing a destination makes the valid move discoverable, but it is not
+        a security check. Browser DOM and JavaScript are controlled by the
+        player. The Durable Object still authenticates the player, verifies turn
+        ownership, and asks the pure engine whether the submitted command is
+        legal against the current snapshot.
+      </p>
+      <div class="callout">
+        <strong>Design rule:</strong> the server describes valid intent; the
+        client chooses an ergonomic physical gesture for expressing that intent.
+      </div>
+
+      <h2>Pointer events unify mouse and touch</h2>
+      <p>
+        One pointer lifecycle handles mouse, pen, and touch. After a small
+        movement threshold, the UI creates a visual card ghost, marks legal drop
+        zones, and tracks the destination under the pointer. Polling pauses
+        during the gesture so a background refresh cannot replace the dragged
+        DOM node.
+      </p>
+
+      <h2>Presentation can derive meaning from position</h2>
+      <p>
+        The canonical wild card remains value <code>0</code>. Once it is inside
+        a build pile, its effective value is the card's one-based position in
+        that pile. The UI displays that derived number with a <em>WILD</em>
+        label. No extra game state is required because the build-pile invariant
+        already defines the meaning.
+      </p>
+
+      <h2>Terminal state deserves a mode change</h2>
+      <p>
+        A finished game is not merely another table update. The result overlay
+        blocks the active table, names the winner from
+        <code>currentPlayerName</code>, changes the message for winner and loser,
+        and stops polling. This makes the domain transition visually
+        irreversible.
+      </p>
+
+      <h2>Public information should look public</h2>
+      <p>
+        The opponent stock top was already included in the safe
+        <code>GameView</code>, but presenting it as small text made it easy to
+        miss. Rendering the actual card with a count badge aligns its visual
+        importance with the player's own stock pile without exposing any hidden
+        card.
+      </p>
+
+      <h2>Retrieve before revealing</h2>
+      <details>
+        <summary>Why not compute valid piles from their visible top cards?</summary>
+        <p>
+          That duplicates engine rules and can drift. Exact legal commands
+          already contain both source and destination.
+        </p>
+      </details>
+      <details>
+        <summary>Why keep command validation after a legal drag?</summary>
+        <p>
+          Another request may change the game before release, and clients are
+          untrusted. Only validation against the authoritative current snapshot
+          can accept the move.
+        </p>
+      </details>
+      <details>
+        <summary>Why derive a wild card's number instead of storing it?</summary>
+        <p>
+          Its build-pile position already determines the number. Storing a
+          second value would create redundant state that could disagree.
+        </p>
+      </details>
+
+      <h2>Primary sources</h2>
+      <ul>
+        <li>
+          <a href="https://developer.mozilla.org/en-US/docs/Web/API/Pointer_events"
+            >MDN: Pointer events</a
+          >
+          for the unified pointer model and pointer capture used by the drag
+          lifecycle.
+        </li>
+        <li>
+          <a href="https://service.mattel.com/instruction_sheets/42050-0520.pdf"
+            >Mattel: Official Skip-Bo instructions</a
+          >
+          for public stock tops, build sequence, wild-card substitution, and
+          winning by clearing the stock pile.
+        </li>
+      </ul>
+
+      <footer>
+        Previous:
+        <a href="./0007-driving-the-browser-from-player-specific-views.html"
+          >Driving the browser from player-specific views</a
+        >. Trace one drag from pointer down to a revalidated engine command, and
+        ask the agent about any interaction or authority boundary that remains
+        unclear.
+      </footer>
+    </main>
+  </body>
+</html>

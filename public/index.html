@@ -85,6 +85,10 @@
             Game length
             <select id="stock-size">
               <option value="5">Quick test · 5 stock cards</option>
+              <option value="10">Short · 10 stock cards</option>
+              <option value="15">Medium · 15 stock cards</option>
+              <option value="20">Long · 20 stock cards</option>
+              <option value="25">Extended · 25 stock cards</option>
               <option value="30">Standard · 30 stock cards</option>
             </select>
           </label>
@@ -137,13 +141,13 @@
           </div>
         </section>
 
-        <section class="action-tray" id="action-tray" hidden aria-label="Available actions">
-          <div>
-            <p class="eyebrow">Selected card</p>
-            <h2 id="selected-card-label"></h2>
+        <section class="winner-overlay" id="winner-overlay" hidden aria-labelledby="winner-title">
+          <div class="winner-panel">
+            <p class="eyebrow">Game over</p>
+            <h1 id="winner-title"></h1>
+            <p id="winner-message"></p>
+            <button class="primary-button" id="winner-leave" type="button">Leave table</button>
           </div>
-          <div class="action-options" id="action-options"></div>
-          <button class="icon-button" id="cancel-selection" type="button" title="Cancel selection" aria-label="Cancel selection">×</button>
         </section>
       </section>
     </main>
