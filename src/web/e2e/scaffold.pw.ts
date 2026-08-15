@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("serves the React checkpoint alongside the playable client", async ({
+test("serves the React client alongside the legacy integration surface", async ({
   page,
 }) => {
   await page.goto("/");
@@ -12,8 +12,8 @@ test("serves the React checkpoint alongside the playable client", async ({
 
   await page.goto("/react/");
 
-  await expect(page).toHaveTitle("Skibo React checkpoint");
+  await expect(page).toHaveTitle("Skibo Table");
   await expect(
-    page.getByRole("heading", { name: "The shared client contract is ready." }),
+    page.getByRole("heading", { name: "Pull up a seat." }),
   ).toBeVisible();
 });

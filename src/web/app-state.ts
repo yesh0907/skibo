@@ -1,29 +1,51 @@
-import type { ApiError, PlayerView } from "../shared/transport";
+import type {
+  ApiError,
+  PlayerView,
+  TransportCommand,
+} from "../shared/transport";
+
+export type RequestKind = "restore" | "create" | "join" | "refresh" | "start" | "command";
 
 export interface AppState {
-  phase: "idle" | "ready";
   view: PlayerView | null;
+  pending: RequestKind | null;
   error: ApiError | null;
+  selectedCommand: TransportCommand | null;
 }
 
 export type AppAction =
-  | { type: "scaffoldOpened" }
+  | { type: "requestStarted"; request: RequestKind }
   | { type: "viewReceived"; view: PlayerView }
-  | { type: "requestFailed"; error: ApiError };
+  | { type: "requestFailed"; error: ApiError }
+  | { type: "commandSelected"; command: TransportCommand | null }
+  | { type: "sessionExited" };
 
 export const initialAppState: AppState = {
-  phase: "idle",
   view: null,
+  pending: null,
   error: null,
+  selectedCommand: null,
 };
 
 export function appReducer(state: AppState, action: AppAction): AppState {
   switch (action.type) {
-    case "scaffoldOpened":
-      return { ...state, phase: "ready" };
+    case "requestStarted":
+      return { ...state, pending: action.request, error: null };
     case "viewReceived":
-      return { phase: "ready", view: action.view, error: null };
+      if (state.view !== null && action.view.revision <= state.view.revision) {
+        return { ...state, pending: null, error: null };
+      }
+      return {
+        view: action.view,
+        pending: null,
+        error: null,
+        selectedCommand: null,
+      };
     case "requestFailed":
-      return { ...state, error: action.error };
+      return { ...state, pending: null, error: action.error };
+    case "commandSelected":
+      return { ...state, selectedCommand: action.command };
+    case "sessionExited":
+      return initialAppState;
   }
 }
