@@ -3,8 +3,12 @@
   "name": "skibo",
   "main": "src/worker/index.ts",
   "compatibility_date": "2026-04-08",
+  "build": {
+    "command": "bun run build:web",
+    "watch_dir": ["public", "src/shared", "src/web"]
+  },
   "assets": {
-    "directory": "./public",
+    "directory": "./dist",
     "not_found_handling": "single-page-application",
     "run_worker_first": ["/api/*"]
   },

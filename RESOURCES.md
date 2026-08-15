@@ -20,6 +20,12 @@
   Primary platform guidance for serving the browser client and Worker API from one deployment.
 - [MDN: Pointer events](https://developer.mozilla.org/en-US/docs/Web/API/Pointer_events)
   Primary browser reference for unified mouse, touch, and pen interactions with pointer capture.
+- [Zod: Defining schemas](https://zod.dev/api)
+  Primary library reference for deriving TypeScript transport types from runtime validators.
+- [React: `useReducer`](https://react.dev/reference/react/useReducer)
+  Primary framework reference for reducer-managed client state and action dispatch.
+- [Bun: HTML and static sites](https://bun.sh/docs/bundler/html-static)
+  Primary bundler reference for HTML entry points and the Tailwind plugin.
 
 ## Wisdom (Communities)
 

@@ -2,8 +2,8 @@
 
 ## Status
 
-- Current phase: Phase 3 Playable Web UI complete
-- Current focus: test and refine the browser gameplay loop before adding real-time transport
+- Current phase: Phase 3 playable UI complete; React refactor scaffolding underway
+- Current focus: migrate the browser client onto the shared revisioned transport contract without disrupting the playable legacy surface
 - Progress:
   - established project goals and collaboration model
   - chose a CLI-first architecture
@@ -68,6 +68,12 @@
   - added 10, 15, 20, and 25-card game lengths and disabled sizes that cannot fit the joined roster
   - made terminal games unmistakable with a full-screen winner or loser result overlay
   - verified drag interaction and a complete networked game through the winner state in a real browser
+  - pinned the shared React 19, Tailwind v4, shadcn, Sonner, dnd-kit, Zod, Testing Library, Playwright, and React Doctor toolchain
+  - established strict Zod transport schemas and inferred types for revisioned player views, API errors, mutation requests, and planned state-only WebSocket envelopes
+  - documented the zero-based monotonic room revision contract without wiring revision transitions into the current Worker or Durable Object
+  - added waiting, playing, finished, stale-snapshot, and stale-envelope fixtures as executable contract examples
+  - scaffolded a reducer-backed React build at `/react/` while preserving the playable static client at `/`
+  - configured Bun HTML bundling with the Tailwind plugin, selective new-york shadcn aliases, Wrangler custom builds and static assets, RTL/user-event, Playwright, and a warning-blocking React Doctor Prek hook
 
 ## Working Agreement
 
@@ -462,14 +468,14 @@ For this project, a good mental shortcut is:
 
 ## Immediate Next Step
 
-The next concrete implementation step is to continue playtesting the revised
-browser workflow, then replace polling with real-time updates:
+The next concrete implementation step is to migrate one complete browser flow
+onto the React reducer and Zod boundary while keeping the legacy client usable:
 
-- run complete short games between two people and capture the next usability gaps
-- add keyboard-accessible direct manipulation without reintroducing the old action tray
-- add a Worker WebSocket upgrade route and authenticate the connection
-- register sockets with the game Durable Object and broadcast after persisted moves
-- preserve HTTP commands and player-specific `GameView` projection as the authority boundary
+- project the current Durable Object state into the new `PlayerView` shape
+- add durable room revision persistence and guarded transitions as a dedicated backend slice
+- build the React API client around schema parsing and structured errors
+- migrate create/join/waiting as the first complete React flow
+- defer cookies, leave behavior, and WebSockets to their own tested slices
 
 Supporting scaffolding now exists for the completed Phase 0 spike:
 
