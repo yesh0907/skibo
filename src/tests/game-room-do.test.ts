@@ -395,7 +395,9 @@ describe("GameRoomDO", () => {
     const alice = await room.join("Alice");
     const bob = await room.join("Bob");
 
-    await expect(room.leave(alice.playerToken)).resolves.toEqual({ revision: 3 });
+    await expect(room.leave(alice.playerToken, 2)).resolves.toEqual({
+      revision: 3,
+    });
     expect((await room.getState()).players.map((player) => player.name)).toEqual([
       "Bob",
     ]);
@@ -411,11 +413,65 @@ describe("GameRoomDO", () => {
     await room.join("Bob");
     await room.start(alice.playerToken, 2, 5);
 
-    expect(room.leave(alice.playerToken)).rejects.toThrow(
+    expect(room.leave(alice.playerToken, 3)).rejects.toThrow(
       '"code":"room_conflict"',
     );
     expect((await room.getState()).players).toHaveLength(2);
     expect((await room.getState()).revision).toBe(3);
+  });
+
+  test("returns stale_revision before a conflicting start or leave transition", async () => {
+    const { room } = await createInitializedRoom("game_test");
+    const alice = await room.join("Alice");
+    await room.join("Bob");
+    await room.start(alice.playerToken, 2, 5);
+
+    expect(room.start(alice.playerToken, 2, 5)).rejects.toThrow(
+      '"code":"stale_revision"',
+    );
+    expect(room.leave(alice.playerToken, 2)).rejects.toThrow(
+      '"code":"stale_revision"',
+    );
+  });
+
+  test("keeps the prior revision when start, command, or leave persistence fails", async () => {
+    const startSetup = createRoom("game_start_failure");
+    await startSetup.room.initialize();
+    const startAlice = await startSetup.room.join("Alice");
+    await startSetup.room.join("Bob");
+    startSetup.storage.failNextPut(new Error("start storage unavailable"));
+    expect(startSetup.room.start(startAlice.playerToken, 2, 5)).rejects.toThrow(
+      "start storage unavailable",
+    );
+    expect((await startSetup.room.getState()).revision).toBe(2);
+
+    const commandSetup = createRoom("game_command_failure");
+    await commandSetup.room.initialize();
+    const commandAlice = await commandSetup.room.join("Alice");
+    await commandSetup.room.join("Bob");
+    const commandView = await commandSetup.room.start(
+      commandAlice.playerToken,
+      2,
+      5,
+    );
+    commandSetup.storage.failNextPut(new Error("command storage unavailable"));
+    expect(
+      commandSetup.room.playCommand(
+        commandAlice.playerToken,
+        3,
+        commandView.legalCommands[0]!,
+      ),
+    ).rejects.toThrow("command storage unavailable");
+    expect((await commandSetup.room.getState()).revision).toBe(3);
+
+    const leaveSetup = createRoom("game_leave_failure");
+    await leaveSetup.room.initialize();
+    const leaveAlice = await leaveSetup.room.join("Alice");
+    leaveSetup.storage.failNextPut(new Error("leave storage unavailable"));
+    expect(leaveSetup.room.leave(leaveAlice.playerToken, 1)).rejects.toThrow(
+      "leave storage unavailable",
+    );
+    expect((await leaveSetup.room.getState()).revision).toBe(1);
   });
 
   test("rejects legacy started state instead of silently reopening it", async () => {

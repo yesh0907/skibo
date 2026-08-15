@@ -16,9 +16,7 @@ import type {
   RoomState,
   RoomSummary,
 } from "../shared/room-state";
-import type { ApiError } from "../shared/transport";
-
-type ApiErrorCode = ApiError["error"]["code"];
+import { RoomError } from "./room-error";
 
 export interface Env {
   GAME_ROOM: DurableObjectNamespace<GameRoomDO>;
@@ -27,24 +25,6 @@ export interface Env {
 const STORAGE_KEY = "game-room-state";
 const MAX_PLAYERS = 6;
 const textEncoder = new TextEncoder();
-
-/** Expected domain failures are serialized in the message because RPC drops own Error fields. */
-export class RoomError extends Error {
-  constructor(
-    code: ApiErrorCode,
-    message: string,
-    currentRevision?: number,
-  ) {
-    super(
-      `SKIBO_ROOM_ERROR:${JSON.stringify({
-        code,
-        message,
-        ...(currentRevision === undefined ? {} : { currentRevision }),
-      })}`,
-    );
-    this.name = "RoomError";
-  }
-}
 
 export class GameRoomDO extends DurableObject<Env> {
   #state: RoomState | undefined;
@@ -105,11 +85,11 @@ export class GameRoomDO extends DurableObject<Env> {
     stockPileSize?: number,
   ): Promise<GameView> {
     const state = await this.#loadState();
+    const player = this.#authenticate(state, playerToken);
+    this.#requireRevision(state, expectedRevision);
     if (state.status !== "waiting") {
       throw new RoomError("room_conflict", "Game is already started");
     }
-    const player = this.#authenticate(state, playerToken);
-    this.#requireRevision(state, expectedRevision);
     if (state.players.length < 2) {
       throw new RoomError(
         "room_conflict",
@@ -188,9 +168,13 @@ export class GameRoomDO extends DurableObject<Env> {
     };
   }
 
-  async leave(playerToken: string): Promise<LeaveResult> {
+  async leave(
+    playerToken: string,
+    expectedRevision: number,
+  ): Promise<LeaveResult> {
     const state = await this.#loadState();
     const player = this.#authenticate(state, playerToken);
+    this.#requireRevision(state, expectedRevision);
     if (state.status !== "waiting") {
       throw new RoomError(
         "room_conflict",
@@ -259,8 +243,11 @@ function timingSafeEqual(left: Uint8Array, right: Uint8Array): boolean {
   if (left.byteLength !== right.byteLength) {
     return false;
   }
-  if (typeof crypto.subtle.timingSafeEqual === "function") {
-    return crypto.subtle.timingSafeEqual(left, right);
+  const workersSubtleCrypto = crypto.subtle as SubtleCrypto & {
+    timingSafeEqual?: (left: Uint8Array, right: Uint8Array) => boolean;
+  };
+  if (typeof workersSubtleCrypto.timingSafeEqual === "function") {
+    return workersSubtleCrypto.timingSafeEqual(left, right);
   }
 
   // Bun's Web Crypto test runtime does not yet expose the Workers extension.
@@ -309,10 +296,9 @@ function createGameView(state: RoomState, viewer: RoomPlayer): GameView {
   const currentPlayer = gameState.players[gameState.currentPlayerIndex]!;
   const isYourTurn = !gameState.isGameOver && currentPlayer.name === viewer.name;
 
-  return {
+  const commonView = {
     gameId: state.gameId,
     revision: state.revision,
-    status: state.status === "started" ? "playing" : "finished",
     viewerName: viewer.name,
     players: gameState.players.map((player) => ({
       name: player.name,
@@ -324,11 +310,27 @@ function createGameView(state: RoomState, viewer: RoomPlayer): GameView {
       discardPiles: player.discardPiles.map((pile) => [...pile]),
     })),
     currentPlayerName: currentPlayer.name,
-    winnerName: gameState.isGameOver ? currentPlayer.name : null,
-    isYourTurn,
     deckCount: gameState.deck.length,
     buildPiles: gameState.buildPiles.map((pile) => [...pile]),
     completedBuildPileCount: gameState.completedBuildPiles.length,
+  };
+
+  if (gameState.isGameOver) {
+    return {
+      ...commonView,
+      status: "finished",
+      currentPlayerName: currentPlayer.name,
+      winnerName: currentPlayer.name,
+      isYourTurn: false,
+      legalCommands: [],
+    };
+  }
+  return {
+    ...commonView,
+    status: "playing",
+    currentPlayerName: currentPlayer.name,
+    winnerName: null,
+    isYourTurn,
     legalCommands: isYourTurn ? getLegalCommands(gameState) : [],
   };
 }

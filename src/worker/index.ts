@@ -1,7 +1,6 @@
 import { z } from "zod";
 
 import {
-  ApiErrorCodeSchema,
   ApiErrorSchema,
   CommandSchema,
   CreateGameRequestSchema,
@@ -12,25 +11,22 @@ import {
   type ApiError,
 } from "../shared/transport";
 import { GameRoomDO, type Env } from "./game-room-do";
+import { parseRoomError } from "./room-error";
 
 export { GameRoomDO };
 
 const PLAYER_COOKIE_NAME = "skibo_player";
 type ApiErrorCode = ApiError["error"]["code"];
 const PLAYER_COOKIE_MAX_AGE_SECONDS = 365 * 24 * 60 * 60;
-const ROOM_ERROR_PREFIX = "SKIBO_ROOM_ERROR:";
+const MAX_JSON_BODY_BYTES = 16 * 1024;
 const GameIdSchema = z
   .string()
   .min(1)
   .max(80)
   .regex(/^[A-Za-z0-9_-]+$/);
 const PlayerTokenSchema = z.string().min(16).max(256);
-const RoomErrorDetailsSchema = z
-  .object({
-    code: ApiErrorCodeSchema.exclude(["invalid_request", "internal_error"]),
-    message: z.string().min(1),
-    currentRevision: z.number().int().nonnegative().optional(),
-  })
+const LeaveRoomRequestSchema = z
+  .object({ expectedRevision: z.number().int().nonnegative() })
   .strict();
 
 function json(data: unknown, init?: ResponseInit): Response {
@@ -61,8 +57,11 @@ async function parseJson<T>(
 
   let body: unknown;
   try {
-    body = await request.json();
-  } catch {
+    body = await readBoundedJson(request);
+  } catch (error) {
+    if (error instanceof HttpError) {
+      throw error;
+    }
     throw new HttpError(400, "invalid_request", "Expected a JSON body");
   }
 
@@ -71,6 +70,44 @@ async function parseJson<T>(
     throw new HttpError(400, "invalid_request", "Request body is invalid");
   }
   return result.data;
+}
+
+async function readBoundedJson(request: Request): Promise<unknown> {
+  const contentLength = request.headers.get("content-length");
+  if (
+    contentLength !== null &&
+    Number.isFinite(Number(contentLength)) &&
+    Number(contentLength) > MAX_JSON_BODY_BYTES
+  ) {
+    throw new HttpError(413, "invalid_request", "Request body is too large");
+  }
+
+  const reader = request.body?.getReader();
+  if (reader === undefined) {
+    throw new SyntaxError("Missing JSON body");
+  }
+  const chunks: Uint8Array[] = [];
+  let byteLength = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+    byteLength += value.byteLength;
+    if (byteLength > MAX_JSON_BODY_BYTES) {
+      await reader.cancel();
+      throw new HttpError(413, "invalid_request", "Request body is too large");
+    }
+    chunks.push(value);
+  }
+
+  const bytes = new Uint8Array(byteLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return JSON.parse(new TextDecoder().decode(bytes));
 }
 
 function requirePlayerToken(request: Request): string {
@@ -237,7 +274,11 @@ export default {
         request.method === "DELETE" &&
         url.pathname === `/api/games/${gameId}/players/me`
       ) {
-        const result = await room.leave(requirePlayerToken(request));
+        const body = await parseJson(request, LeaveRoomRequestSchema);
+        const result = await room.leave(
+          requirePlayerToken(request),
+          body.expectedRevision,
+        );
         return withCookie(
           json(result),
           playerCookie(request, gameId, "", 0),
@@ -289,26 +330,4 @@ function apiError(
     },
   });
   return json(body, { status });
-}
-
-function parseRoomError(error: unknown): z.infer<typeof RoomErrorDetailsSchema> | null {
-  if (!(error instanceof Error)) {
-    return null;
-  }
-  const message = error.message.startsWith("RoomError: ")
-    ? error.message.slice("RoomError: ".length)
-    : error.message;
-  if (error.name !== "RoomError" && !message.startsWith(ROOM_ERROR_PREFIX)) {
-    return null;
-  }
-  if (!message.startsWith(ROOM_ERROR_PREFIX)) {
-    return null;
-  }
-  try {
-    return RoomErrorDetailsSchema.parse(
-      JSON.parse(message.slice(ROOM_ERROR_PREFIX.length)),
-    );
-  } catch {
-    return null;
-  }
 }

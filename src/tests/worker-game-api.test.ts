@@ -2,6 +2,7 @@ import { describe, expect, mock, test } from "bun:test";
 
 import type { GameView } from "../shared/room-state";
 import type { Env } from "../worker/game-room-do";
+import { RoomError } from "../worker/room-error";
 
 mock.module("cloudflare:workers", () => ({
   DurableObject: class DurableObject {
@@ -208,13 +209,17 @@ describe("Worker game API", () => {
     const response = await worker.fetch(
       new Request("https://skibo.example/api/games/game_test/players/me", {
         method: "DELETE",
-        headers: { cookie: "skibo_player=player-token-alice" },
+        headers: {
+          cookie: "skibo_player=player-token-alice",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ expectedRevision: 1 }),
       }),
       env,
     );
 
     expect(response.status).toBe(200);
-    expect(room.leave).toHaveBeenCalledWith("player-token-alice");
+    expect(room.leave).toHaveBeenCalledWith("player-token-alice", 1);
     expect(response.headers.get("set-cookie")).toBe(
       "skibo_player=; Path=/api/games/game_test; Max-Age=0; HttpOnly; SameSite=Strict; Secure",
     );
@@ -246,14 +251,33 @@ describe("Worker game API", () => {
     });
   });
 
+  test("rejects oversized JSON bodies before buffering or calling the room", async () => {
+    const { env, room } = createEnv();
+    const response = await worker.fetch(
+      new Request("http://local/api/games/game_test/join", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ playerName: "A".repeat(20_000) }),
+      }),
+      env,
+    );
+
+    expect(response.status).toBe(413);
+    expect(room.join).not.toHaveBeenCalled();
+    const body: unknown = await response.json();
+    expect(body).toEqual({
+      error: { code: "invalid_request", message: "Request body is too large" },
+    });
+  });
+
   test("returns stale revisions with recovery data", async () => {
     const { env } = createEnv({
       start: mock(async () => {
-        const error = new Error(
-          'SKIBO_ROOM_ERROR:{"code":"stale_revision","message":"The room changed; refresh and try again","currentRevision":4}',
+        throw new RoomError(
+          "stale_revision",
+          "The room changed; refresh and try again",
+          4,
         );
-        error.name = "RoomError";
-        throw error;
       }),
     });
     const response = await worker.fetch(
