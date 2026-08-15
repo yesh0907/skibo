@@ -11,10 +11,14 @@ import type {
   CommandResult,
   GameView,
   JoinResult,
+  LeaveResult,
   RoomPlayer,
   RoomState,
   RoomSummary,
 } from "../shared/room-state";
+import type { ApiError } from "../shared/transport";
+
+type ApiErrorCode = ApiError["error"]["code"];
 
 export interface Env {
   GAME_ROOM: DurableObjectNamespace<GameRoomDO>;
@@ -24,9 +28,20 @@ const STORAGE_KEY = "game-room-state";
 const MAX_PLAYERS = 6;
 const textEncoder = new TextEncoder();
 
+/** Expected domain failures are serialized in the message because RPC drops own Error fields. */
 export class RoomError extends Error {
-  constructor(message: string) {
-    super(message);
+  constructor(
+    code: ApiErrorCode,
+    message: string,
+    currentRevision?: number,
+  ) {
+    super(
+      `SKIBO_ROOM_ERROR:${JSON.stringify({
+        code,
+        message,
+        ...(currentRevision === undefined ? {} : { currentRevision }),
+      })}`,
+    );
     this.name = "RoomError";
   }
 }
@@ -37,11 +52,12 @@ export class GameRoomDO extends DurableObject<Env> {
   async initialize(): Promise<RoomSummary> {
     const cached = await this.ctx.storage.get<unknown>(STORAGE_KEY);
     if (cached !== undefined) {
-      throw new RoomError("Game room is already initialized");
+      throw new RoomError("room_conflict", "Game room is already initialized");
     }
 
     const state = await this.#persist({
       gameId: this.ctx.id.name ?? this.ctx.id.toString(),
+      revision: 0,
       status: "waiting",
       players: [],
       gameState: null,
@@ -56,13 +72,16 @@ export class GameRoomDO extends DurableObject<Env> {
   async join(playerName: string): Promise<JoinResult> {
     const state = await this.#loadState();
     if (state.status !== "waiting") {
-      throw new RoomError("Can't join a game that has started");
+      throw new RoomError("room_conflict", "Can't join a game that has started");
     }
     if (state.players.some((player) => player.name === playerName)) {
-      throw new RoomError("Player already joined");
+      throw new RoomError("room_conflict", "Player already joined");
     }
     if (state.players.length >= MAX_PLAYERS) {
-      throw new RoomError("Game already has the maximum of 6 players");
+      throw new RoomError(
+        "room_conflict",
+        "Game already has the maximum of 6 players",
+      );
     }
 
     const player: RoomPlayer = {
@@ -71,6 +90,7 @@ export class GameRoomDO extends DurableObject<Env> {
     };
     const nextState = await this.#persist({
       ...state,
+      revision: state.revision + 1,
       players: [...state.players, player],
     });
     return {
@@ -81,22 +101,29 @@ export class GameRoomDO extends DurableObject<Env> {
 
   async start(
     playerToken: string,
+    expectedRevision: number,
     stockPileSize?: number,
   ): Promise<GameView> {
     const state = await this.#loadState();
     if (state.status !== "waiting") {
-      throw new RoomError("Game is already started");
+      throw new RoomError("room_conflict", "Game is already started");
     }
     const player = this.#authenticate(state, playerToken);
+    this.#requireRevision(state, expectedRevision);
     if (state.players.length < 2) {
-      throw new RoomError("Can't start a game with less than 2 players");
+      throw new RoomError(
+        "room_conflict",
+        "Can't start a game with less than 2 players",
+      );
     }
-
     if (
       stockPileSize !== undefined &&
       state.players.length * (stockPileSize + 5) > 162
     ) {
-      throw new RoomError("Not enough cards to deal the requested game setup");
+      throw new RoomError(
+        "room_conflict",
+        "Not enough cards to deal the requested game setup",
+      );
     }
 
     const gameState = createGameState(
@@ -105,6 +132,7 @@ export class GameRoomDO extends DurableObject<Env> {
     );
     const nextState = await this.#persist({
       ...state,
+      revision: state.revision + 1,
       status: "started",
       gameState,
     });
@@ -118,27 +146,35 @@ export class GameRoomDO extends DurableObject<Env> {
 
   async playCommand(
     playerToken: string,
+    expectedRevision: number,
     command: Command,
   ): Promise<CommandResult> {
     const state = await this.#loadState();
     const player = this.#authenticate(state, playerToken);
+    this.#requireRevision(state, expectedRevision);
     if (state.status !== "started" || state.gameState === null) {
-      throw new RoomError("Game is not started");
+      throw new RoomError("room_conflict", "Game is not started");
     }
 
     const currentPlayer =
       state.gameState.players[state.gameState.currentPlayerIndex]!;
     if (currentPlayer.name !== player.name) {
-      throw new RoomError(`It is not ${player.name}'s turn`);
+      throw new RoomError(
+        "room_conflict",
+        `It is not ${player.name}'s turn`,
+      );
     }
-
     if (!isCommandLegal(state.gameState, command)) {
-      throw new RoomError("Command is not legal in the current game state");
+      throw new RoomError(
+        "room_conflict",
+        "Command is not legal in the current game state",
+      );
     }
 
     const resolution = resolveCommand(command, state.gameState);
     const nextState = await this.#persist({
       ...state,
+      revision: state.revision + 1,
       status: resolution.nextState.isGameOver ? "finished" : "started",
       gameState: resolution.nextState,
     });
@@ -152,6 +188,24 @@ export class GameRoomDO extends DurableObject<Env> {
     };
   }
 
+  async leave(playerToken: string): Promise<LeaveResult> {
+    const state = await this.#loadState();
+    const player = this.#authenticate(state, playerToken);
+    if (state.status !== "waiting") {
+      throw new RoomError(
+        "room_conflict",
+        "Can't leave a game that has started",
+      );
+    }
+
+    const nextState = await this.#persist({
+      ...state,
+      revision: state.revision + 1,
+      players: state.players.filter((candidate) => candidate !== player),
+    });
+    return { revision: nextState.revision };
+  }
+
   async #loadState(): Promise<RoomState> {
     if (this.#state !== undefined) {
       return this.#state;
@@ -160,9 +214,12 @@ export class GameRoomDO extends DurableObject<Env> {
     const cached = await this.ctx.storage.get<unknown>(STORAGE_KEY);
     if (!isRoomState(cached)) {
       if (cached === undefined) {
-        throw new RoomError("Game room does not exist");
+        throw new RoomError("not_found", "Game room does not exist");
       }
-      throw new RoomError("Game room state version is unsupported");
+      throw new RoomError(
+        "room_conflict",
+        "Game room state version is unsupported",
+      );
     }
 
     this.#state = cached;
@@ -182,9 +239,19 @@ export class GameRoomDO extends DurableObject<Env> {
       return timingSafeEqual(storedToken, suppliedToken);
     });
     if (player === undefined) {
-      throw new RoomError("Player token is invalid");
+      throw new RoomError("unauthorized", "Player authentication is invalid");
     }
     return player;
+  }
+
+  #requireRevision(state: RoomState, expectedRevision: number): void {
+    if (state.revision !== expectedRevision) {
+      throw new RoomError(
+        "stale_revision",
+        "The room changed; refresh and try again",
+        state.revision,
+      );
+    }
   }
 }
 
@@ -192,6 +259,11 @@ function timingSafeEqual(left: Uint8Array, right: Uint8Array): boolean {
   if (left.byteLength !== right.byteLength) {
     return false;
   }
+  if (typeof crypto.subtle.timingSafeEqual === "function") {
+    return crypto.subtle.timingSafeEqual(left, right);
+  }
+
+  // Bun's Web Crypto test runtime does not yet expose the Workers extension.
   let difference = 0;
   for (let index = 0; index < left.byteLength; index++) {
     difference |= left[index]! ^ right[index]!;
@@ -202,6 +274,7 @@ function timingSafeEqual(left: Uint8Array, right: Uint8Array): boolean {
 function createRoomSummary(state: RoomState): RoomSummary {
   return {
     gameId: state.gameId,
+    revision: state.revision,
     status: state.status,
     playerNames: state.players.map((player) => player.name),
   };
@@ -211,7 +284,8 @@ function createGameView(state: RoomState, viewer: RoomPlayer): GameView {
   if (state.gameState === null) {
     return {
       gameId: state.gameId,
-      status: state.status,
+      revision: state.revision,
+      status: "waiting",
       viewerName: viewer.name,
       players: state.players.map((player) => ({
         name: player.name,
@@ -222,6 +296,7 @@ function createGameView(state: RoomState, viewer: RoomPlayer): GameView {
         discardPiles: [[], [], [], []],
       })),
       currentPlayerName: null,
+      winnerName: null,
       isYourTurn: false,
       deckCount: 0,
       buildPiles: [[], [], [], []],
@@ -236,7 +311,8 @@ function createGameView(state: RoomState, viewer: RoomPlayer): GameView {
 
   return {
     gameId: state.gameId,
-    status: state.status,
+    revision: state.revision,
+    status: state.status === "started" ? "playing" : "finished",
     viewerName: viewer.name,
     players: gameState.players.map((player) => ({
       name: player.name,
@@ -248,6 +324,7 @@ function createGameView(state: RoomState, viewer: RoomPlayer): GameView {
       discardPiles: player.discardPiles.map((pile) => [...pile]),
     })),
     currentPlayerName: currentPlayer.name,
+    winnerName: gameState.isGameOver ? currentPlayer.name : null,
     isYourTurn,
     deckCount: gameState.deck.length,
     buildPiles: gameState.buildPiles.map((pile) => [...pile]),
@@ -261,6 +338,7 @@ function isRoomState(value: unknown): value is RoomState {
     typeof value !== "object" ||
     value === null ||
     !("gameId" in value) ||
+    !("revision" in value) ||
     !("status" in value) ||
     !("players" in value) ||
     !("gameState" in value)
@@ -270,6 +348,9 @@ function isRoomState(value: unknown): value is RoomState {
 
   return (
     typeof value.gameId === "string" &&
+    typeof value.revision === "number" &&
+    Number.isInteger(value.revision) &&
+    value.revision >= 0 &&
     (value.status === "waiting" ||
       value.status === "started" ||
       value.status === "finished") &&

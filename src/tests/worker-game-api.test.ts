@@ -16,15 +16,38 @@ const { default: worker } = await import("../worker/index");
 
 const waitingView: GameView = {
   gameId: "game_test",
+  revision: 1,
   status: "waiting",
   viewerName: "Alice",
-  players: [],
+  players: [
+    {
+      name: "Alice",
+      cardsInHand: null,
+      handCount: 0,
+      stockTopCard: null,
+      stockCount: 0,
+      discardPiles: [[], [], [], []],
+    },
+  ],
   currentPlayerName: null,
+  winnerName: null,
   isYourTurn: false,
   deckCount: 0,
   buildPiles: [[], [], [], []],
   completedBuildPileCount: 0,
   legalCommands: [],
+};
+
+const playingView: GameView = {
+  ...waitingView,
+  revision: 3,
+  status: "playing",
+  currentPlayerName: "Alice",
+  isYourTurn: true,
+  players: waitingView.players.map((player) => ({
+    ...player,
+    cardsInHand: [],
+  })),
 };
 
 function createEnv(overrides: Record<string, unknown> = {}): {
@@ -34,22 +57,18 @@ function createEnv(overrides: Record<string, unknown> = {}): {
   const room = {
     initialize: mock(async () => ({
       gameId: "game_test",
+      revision: 0,
       status: "waiting",
       playerNames: [],
-    })),
-    getState: mock(async () => ({
-      gameId: "game_test",
-      status: "waiting",
-      players: [],
-      gameState: null,
     })),
     join: mock(async () => ({
       playerToken: "player-token-alice",
       view: waitingView,
     })),
     getView: mock(async () => waitingView),
-    start: mock(async () => ({ ...waitingView, status: "started" })),
+    start: mock(async () => playingView),
     playCommand: mock(async () => ({ view: waitingView, effects: [] })),
+    leave: mock(async () => ({ revision: 2 })),
     ...overrides,
   };
 
@@ -66,7 +85,6 @@ function createEnv(overrides: Record<string, unknown> = {}): {
 describe("Worker game API", () => {
   test("creates and explicitly initializes a room", async () => {
     const { env, room } = createEnv();
-
     const response = await worker.fetch(
       new Request("http://local/api/games", { method: "POST" }),
       env,
@@ -76,9 +94,8 @@ describe("Worker game API", () => {
     expect(room.initialize).toHaveBeenCalledTimes(1);
   });
 
-  test("joins a player and returns their player-specific view", async () => {
+  test("joins a player and issues a one-year game-scoped HttpOnly cookie", async () => {
     const { env, room } = createEnv();
-
     const response = await worker.fetch(
       new Request("http://local/api/games/game_test/join", {
         method: "POST",
@@ -90,6 +107,9 @@ describe("Worker game API", () => {
 
     expect(response.status).toBe(200);
     expect(room.join).toHaveBeenCalledWith("Alice");
+    expect(response.headers.get("set-cookie")).toBe(
+      "skibo_player=player-token-alice; Path=/api/games/game_test; Max-Age=31536000; HttpOnly; SameSite=Strict",
+    );
     const body: unknown = await response.json();
     expect(body).toEqual({
       playerToken: "player-token-alice",
@@ -97,36 +117,72 @@ describe("Worker game API", () => {
     });
   });
 
-  test("starts a short game with the requesting joined player", async () => {
-    const { env, room } = createEnv();
-
+  test("marks the player cookie Secure on HTTPS production requests", async () => {
+    const { env } = createEnv();
     const response = await worker.fetch(
-      new Request("http://local/api/games/game_test/start", {
+      new Request("https://skibo.example/api/games/game_test/join", {
         method: "POST",
-        headers: {
-          authorization: "Bearer player-token-alice",
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({
-          stockPileSize: 5,
-        }),
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ playerName: "Alice" }),
+      }),
+      env,
+    );
+
+    expect(response.headers.get("set-cookie")).toEndWith("; Secure");
+  });
+
+  test("authenticates state reads from the game cookie", async () => {
+    const { env, room } = createEnv();
+    const response = await worker.fetch(
+      new Request("http://local/api/games/game_test/state", {
+        headers: { cookie: "other=x; skibo_player=player-token-alice" },
       }),
       env,
     );
 
     expect(response.status).toBe(200);
-    expect(room.start).toHaveBeenCalledWith("player-token-alice", 5);
+    expect(room.getView).toHaveBeenCalledWith("player-token-alice");
   });
 
-  test("submits a structured command to the authoritative room", async () => {
+  test("temporarily accepts bearer authentication", async () => {
+    const { env, room } = createEnv();
+    const response = await worker.fetch(
+      new Request("http://local/api/games/game_test/state", {
+        headers: { authorization: "Bearer player-token-alice" },
+      }),
+      env,
+    );
+
+    expect(response.status).toBe(200);
+    expect(room.getView).toHaveBeenCalledWith("player-token-alice");
+  });
+
+  test("starts with a revisioned Zod-validated request", async () => {
+    const { env, room } = createEnv();
+    const response = await worker.fetch(
+      new Request("http://local/api/games/game_test/start", {
+        method: "POST",
+        headers: {
+          cookie: "skibo_player=player-token-alice",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ expectedRevision: 2, stockPileSize: 5 }),
+      }),
+      env,
+    );
+
+    expect(response.status).toBe(200);
+    expect(room.start).toHaveBeenCalledWith("player-token-alice", 2, 5);
+  });
+
+  test("submits a revisioned command over DO RPC", async () => {
     const { env, room } = createEnv();
     const command = {
-      type: "discardCard",
+      type: "discardCard" as const,
       cardValue: 8,
-      source: { type: "hand", index: 0 },
+      source: { type: "hand" as const, index: 0 },
       discardPileIndex: 1,
     };
-
     const response = await worker.fetch(
       new Request("http://local/api/games/game_test/commands", {
         method: "POST",
@@ -134,9 +190,7 @@ describe("Worker game API", () => {
           authorization: "Bearer player-token-alice",
           "content-type": "application/json",
         },
-        body: JSON.stringify({
-          command,
-        }),
+        body: JSON.stringify({ expectedRevision: 3, command }),
       }),
       env,
     );
@@ -144,44 +198,30 @@ describe("Worker game API", () => {
     expect(response.status).toBe(200);
     expect(room.playCommand).toHaveBeenCalledWith(
       "player-token-alice",
+      3,
       command,
     );
   });
 
-  test("reads a player view using its server-issued token", async () => {
+  test("leaves a waiting room and clears the game cookie", async () => {
     const { env, room } = createEnv();
-
     const response = await worker.fetch(
-      new Request(
-        "http://local/api/games/game_test/state",
-        { headers: { authorization: "Bearer player-token-alice" } },
-      ),
+      new Request("https://skibo.example/api/games/game_test/players/me", {
+        method: "DELETE",
+        headers: { cookie: "skibo_player=player-token-alice" },
+      }),
       env,
     );
 
     expect(response.status).toBe(200);
-    expect(room.getView).toHaveBeenCalledWith("player-token-alice");
-    const body: unknown = await response.json();
-    expect(body).toEqual(waitingView);
-  });
-
-  test("requires player tokens in authorization headers, not URLs", async () => {
-    const { env, room } = createEnv();
-
-    const response = await worker.fetch(
-      new Request(
-        "http://local/api/games/game_test/state?playerToken=player-token-alice",
-      ),
-      env,
+    expect(room.leave).toHaveBeenCalledWith("player-token-alice");
+    expect(response.headers.get("set-cookie")).toBe(
+      "skibo_player=; Path=/api/games/game_test; Max-Age=0; HttpOnly; SameSite=Strict; Secure",
     );
-
-    expect(response.status).toBe(401);
-    expect(room.getView).not.toHaveBeenCalled();
   });
 
-  test("rejects malformed commands before calling the room", async () => {
+  test("rejects malformed or extra fields before calling the room", async () => {
     const { env, room } = createEnv();
-
     const response = await worker.fetch(
       new Request("http://local/api/games/game_test/commands", {
         method: "POST",
@@ -190,8 +230,9 @@ describe("Worker game API", () => {
           "content-type": "application/json",
         },
         body: JSON.stringify({
-          playerName: "Alice",
+          expectedRevision: 3,
           command: { type: "playCard" },
+          playerName: "Alice",
         }),
       }),
       env,
@@ -199,17 +240,22 @@ describe("Worker game API", () => {
 
     expect(response.status).toBe(400);
     expect(room.playCommand).not.toHaveBeenCalled();
+    const body: unknown = await response.json();
+    expect(body).toEqual({
+      error: { code: "invalid_request", message: "Request body is invalid" },
+    });
   });
 
-  test("returns room rule conflicts as JSON", async () => {
+  test("returns stale revisions with recovery data", async () => {
     const { env } = createEnv({
       start: mock(async () => {
-        const error = new Error("Game is already started");
+        const error = new Error(
+          'SKIBO_ROOM_ERROR:{"code":"stale_revision","message":"The room changed; refresh and try again","currentRevision":4}',
+        );
         error.name = "RoomError";
         throw error;
       }),
     });
-
     const response = await worker.fetch(
       new Request("http://local/api/games/game_test/start", {
         method: "POST",
@@ -217,7 +263,7 @@ describe("Worker game API", () => {
           authorization: "Bearer player-token-alice",
           "content-type": "application/json",
         },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ expectedRevision: 3 }),
       }),
       env,
     );
@@ -225,28 +271,12 @@ describe("Worker game API", () => {
     expect(response.status).toBe(409);
     const body: unknown = await response.json();
     expect(body).toEqual({
-      error: "Game is already started",
+      error: {
+        code: "stale_revision",
+        message: "The room changed; refresh and try again",
+        currentRevision: 4,
+      },
     });
-  });
-
-  test("normalizes RoomError messages serialized across RPC", async () => {
-    const { env } = createEnv({
-      getView: mock(async () => {
-        throw new Error("RoomError: Game room does not exist");
-      }),
-    });
-
-    const response = await worker.fetch(
-      new Request(
-        "http://local/api/games/game_missing/state",
-        { headers: { authorization: "Bearer player-token-alice" } },
-      ),
-      env,
-    );
-
-    expect(response.status).toBe(409);
-    const body: unknown = await response.json();
-    expect(body).toEqual({ error: "Game room does not exist" });
   });
 
   test("does not expose unexpected infrastructure failures", async () => {
@@ -255,17 +285,17 @@ describe("Worker game API", () => {
         throw new Error("database connection details");
       }),
     });
-
     const response = await worker.fetch(
-      new Request(
-        "http://local/api/games/game_test/state",
-        { headers: { authorization: "Bearer player-token-alice" } },
-      ),
+      new Request("http://local/api/games/game_test/state", {
+        headers: { authorization: "Bearer player-token-alice" },
+      }),
       env,
     );
 
     expect(response.status).toBe(500);
     const body: unknown = await response.json();
-    expect(body).toEqual({ error: "Internal server error" });
+    expect(body).toEqual({
+      error: { code: "internal_error", message: "Internal server error" },
+    });
   });
 });

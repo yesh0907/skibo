@@ -175,6 +175,7 @@ describe("GameRoomDO", () => {
 
     expect(room.getState()).resolves.toEqual<RoomState>({
       gameId: "game_test",
+      revision: 0,
       status: "waiting",
       players: [],
       gameState: null,
@@ -198,6 +199,7 @@ describe("GameRoomDO", () => {
     const updated = await room.getState();
 
     expect(updated).toMatchObject({
+      revision: 2,
       status: "waiting",
       gameState: null,
     });
@@ -217,11 +219,12 @@ describe("GameRoomDO", () => {
     const alice = await room.join("Alice");
     await room.join("Bob");
 
-    const view = await room.start(alice.playerToken, 5);
+    const view = await room.start(alice.playerToken, 2, 5);
 
     expect(view).toMatchObject({
       gameId: "game_test",
-      status: "started",
+      revision: 3,
+      status: "playing",
       currentPlayerName: "Alice",
       isYourTurn: true,
     });
@@ -235,7 +238,8 @@ describe("GameRoomDO", () => {
 
     const solo = await room.join("Solo");
 
-    expect(room.start(solo.playerToken, 5)).rejects.toThrow();
+    expect(room.start(solo.playerToken, 1, 5)).rejects.toThrow();
+    expect((await room.getState()).revision).toBe(1);
   });
 
   test("does not allow joining after the room has started", async () => {
@@ -243,7 +247,7 @@ describe("GameRoomDO", () => {
 
     const alice = await room.join("Alice");
     await room.join("Bob");
-    await room.start(alice.playerToken, 5);
+    await room.start(alice.playerToken, 2, 5);
 
     expect(room.join("Carol")).rejects.toThrow();
   });
@@ -264,7 +268,7 @@ describe("GameRoomDO", () => {
 
     const alice = await room.join("Alice");
     const bob = await room.join("Bob");
-    await room.start(alice.playerToken, 5);
+    await room.start(alice.playerToken, 2, 5);
 
     const aliceView = await room.getView(alice.playerToken);
     const bobView = await room.getView(bob.playerToken);
@@ -287,33 +291,33 @@ describe("GameRoomDO", () => {
     await room.join("Bob");
 
     expect(room.getView("invalid-player-token")).rejects.toThrow(
-      "Player token is invalid",
+      '"code":"unauthorized"',
     );
-    expect(room.start("invalid-player-token", 5)).rejects.toThrow(
-      "Player token is invalid",
+    expect(room.start("invalid-player-token", 2, 5)).rejects.toThrow(
+      '"code":"unauthorized"',
     );
 
-    await room.start(alice.playerToken, 5);
+    await room.start(alice.playerToken, 2, 5);
     expect(
-      room.playCommand("invalid-player-token", {
+      room.playCommand("invalid-player-token", 3, {
         type: "discardCard",
         cardValue: 1,
         source: { type: "hand", index: 0 },
         discardPileIndex: 0,
       }),
-    ).rejects.toThrow("Player token is invalid");
+    ).rejects.toThrow('"code":"unauthorized"');
   });
 
   test("rejects a command from a player who does not own the turn", async () => {
     const { room } = await createInitializedRoom("game_test");
     const alice = await room.join("Alice");
     const bob = await room.join("Bob");
-    await room.start(alice.playerToken, 5);
+    await room.start(alice.playerToken, 2, 5);
 
     const aliceView = await room.getView(alice.playerToken);
 
     expect(
-      room.playCommand(bob.playerToken, aliceView.legalCommands[0]!),
+      room.playCommand(bob.playerToken, 3, aliceView.legalCommands[0]!),
     ).rejects.toThrow("It is not Bob's turn");
   });
 
@@ -321,10 +325,10 @@ describe("GameRoomDO", () => {
     const { room } = await createInitializedRoom("game_test");
     const alice = await room.join("Alice");
     await room.join("Bob");
-    await room.start(alice.playerToken, 5);
+    await room.start(alice.playerToken, 2, 5);
 
     expect(
-      room.playCommand(alice.playerToken, {
+      room.playCommand(alice.playerToken, 3, {
         type: "playCard",
         cardValue: 12,
         source: { type: "stockPile" },
@@ -338,12 +342,12 @@ describe("GameRoomDO", () => {
     await setup.room.initialize();
     const alice = await setup.room.join("Alice");
     const bob = await setup.room.join("Bob");
-    const aliceView = await setup.room.start(alice.playerToken, 5);
+    const aliceView = await setup.room.start(alice.playerToken, 2, 5);
     const command = aliceView.legalCommands.find(
       (candidate) => candidate.type === "discardCard",
     )!;
 
-    const result = await setup.room.playCommand(alice.playerToken, command);
+    const result = await setup.room.playCommand(alice.playerToken, 3, command);
     const rehydratedRoom = createRoom("game_test", setup.storage).room;
     const persistedBobView = await rehydratedRoom.getView(bob.playerToken);
 
@@ -354,6 +358,7 @@ describe("GameRoomDO", () => {
       false,
     );
     expect(result.view.currentPlayerName).toBe("Bob");
+    expect(result.view.revision).toBe(4);
     expect(persistedBobView.currentPlayerName).toBe("Bob");
     expect(persistedBobView.isYourTurn).toBe(true);
   });
@@ -365,6 +370,52 @@ describe("GameRoomDO", () => {
 
     expect(setup.room.join("Alice")).rejects.toThrow("storage unavailable");
     expect((await setup.room.getState()).players).toEqual([]);
+    expect((await setup.room.getState()).revision).toBe(0);
+  });
+
+  test("rejects stale starts and commands without changing the revision", async () => {
+    const { room } = await createInitializedRoom("game_test");
+    const alice = await room.join("Alice");
+    await room.join("Bob");
+
+    expect(room.start(alice.playerToken, 1, 5)).rejects.toThrow(
+      '"code":"stale_revision"',
+    );
+    expect((await room.getState()).revision).toBe(2);
+
+    const view = await room.start(alice.playerToken, 2, 5);
+    expect(
+      room.playCommand(alice.playerToken, 2, view.legalCommands[0]!),
+    ).rejects.toThrow('"currentRevision":3');
+    expect((await room.getState()).revision).toBe(3);
+  });
+
+  test("removes a waiting player, revokes the token, and advances once", async () => {
+    const { room } = await createInitializedRoom("game_test");
+    const alice = await room.join("Alice");
+    const bob = await room.join("Bob");
+
+    await expect(room.leave(alice.playerToken)).resolves.toEqual({ revision: 3 });
+    expect((await room.getState()).players.map((player) => player.name)).toEqual([
+      "Bob",
+    ]);
+    expect(room.getView(alice.playerToken)).rejects.toThrow(
+      '"code":"unauthorized"',
+    );
+    expect((await room.getView(bob.playerToken)).revision).toBe(3);
+  });
+
+  test("rejects leaving after start without removing the seat", async () => {
+    const { room } = await createInitializedRoom("game_test");
+    const alice = await room.join("Alice");
+    await room.join("Bob");
+    await room.start(alice.playerToken, 2, 5);
+
+    expect(room.leave(alice.playerToken)).rejects.toThrow(
+      '"code":"room_conflict"',
+    );
+    expect((await room.getState()).players).toHaveLength(2);
+    expect((await room.getState()).revision).toBe(3);
   });
 
   test("rejects legacy started state instead of silently reopening it", async () => {

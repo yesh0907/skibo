@@ -1,6 +1,7 @@
 import type { Command } from "./command";
 import type { Effect } from "./effect";
 import type { GameState } from "./game-state";
+import type { PlayerView } from "./transport";
 
 export type RoomStatus = "waiting" | "started" | "finished";
 
@@ -11,6 +12,7 @@ export interface RoomPlayer {
 
 export interface RoomState {
   gameId: string;
+  revision: number;
   status: RoomStatus;
   players: RoomPlayer[];
   gameState: GameState | null;
@@ -18,31 +20,12 @@ export interface RoomState {
 
 export interface RoomSummary {
   gameId: string;
+  revision: number;
   status: RoomStatus;
   playerNames: string[];
 }
 
-export interface PlayerGameView {
-  name: string;
-  cardsInHand: number[] | null;
-  handCount: number;
-  stockTopCard: number | null;
-  stockCount: number;
-  discardPiles: number[][];
-}
-
-export interface GameView {
-  gameId: string;
-  status: RoomStatus;
-  viewerName: string;
-  players: PlayerGameView[];
-  currentPlayerName: string | null;
-  isYourTurn: boolean;
-  deckCount: number;
-  buildPiles: number[][];
-  completedBuildPileCount: number;
-  legalCommands: Command[];
-}
+export type GameView = PlayerView;
 
 export interface JoinResult {
   playerToken: string;
@@ -52,6 +35,10 @@ export interface JoinResult {
 export interface CommandResult {
   view: GameView;
   effects: Effect[];
+}
+
+export interface LeaveResult {
+  revision: number;
 }
 
 export interface JoinRoomRequest {
