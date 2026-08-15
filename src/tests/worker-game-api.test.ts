@@ -95,6 +95,20 @@ describe("Worker game API", () => {
     expect(room.initialize).toHaveBeenCalledTimes(1);
   });
 
+  test("accepts the runtime's zero-byte stream for an empty create request", async () => {
+    const { env, room } = createEnv();
+    const response = await worker.fetch(
+      new Request("http://local/api/games", {
+        method: "POST",
+        body: "",
+      }),
+      env,
+    );
+
+    expect(response.status).toBe(201);
+    expect(room.initialize).toHaveBeenCalledTimes(1);
+  });
+
   test("joins a player and issues a one-year game-scoped HttpOnly cookie", async () => {
     const { env, room } = createEnv();
     const response = await worker.fetch(

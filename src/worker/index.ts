@@ -51,13 +51,23 @@ async function parseJson<T>(
   if (request.body === null && allowEmpty) {
     return schema.parse({});
   }
-  if (!request.headers.get("content-type")?.includes("application/json")) {
+  const hasJsonContentType = request.headers
+    .get("content-type")
+    ?.includes("application/json");
+  if (!allowEmpty && !hasJsonContentType) {
     throw new HttpError(400, "invalid_request", "Expected a JSON body");
   }
 
   let body: unknown;
   try {
-    body = await readBoundedJson(request);
+    const jsonText = await readBoundedBody(request);
+    if (allowEmpty && jsonText.length === 0) {
+      return schema.parse({});
+    }
+    if (!hasJsonContentType) {
+      throw new HttpError(400, "invalid_request", "Expected a JSON body");
+    }
+    body = JSON.parse(jsonText);
   } catch (error) {
     if (error instanceof HttpError) {
       throw error;
@@ -72,7 +82,7 @@ async function parseJson<T>(
   return result.data;
 }
 
-async function readBoundedJson(request: Request): Promise<unknown> {
+async function readBoundedBody(request: Request): Promise<string> {
   const contentLength = request.headers.get("content-length");
   if (
     contentLength !== null &&
@@ -107,7 +117,7 @@ async function readBoundedJson(request: Request): Promise<unknown> {
     bytes.set(chunk, offset);
     offset += chunk.byteLength;
   }
-  return JSON.parse(new TextDecoder().decode(bytes));
+  return new TextDecoder().decode(bytes);
 }
 
 function requirePlayerToken(request: Request): string {
