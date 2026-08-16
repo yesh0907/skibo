@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Cookies Identify; Revisions Order</title>
+    <link rel="stylesheet" href="../assets/lesson.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <div class="kicker">Skip-Bo HTTP Integration · Lesson 0011</div>
+        <h1>Cookies identify; revisions order</h1>
+        <p class="lead">
+          A multiplayer request is safe only when the server knows both who is
+          acting and which durable snapshot they acted from.
+        </p>
+        <div class="meta">Completed slice: integrated Phase 3 HTTP application</div>
+      </header>
+
+      <h2>Two independent proofs cross the boundary</h2>
+      <div class="flow">
+        <div><strong>Cookie</strong>Maps the request to one private room player.</div>
+        <div><strong>Revision</strong>Proves which room snapshot informed the action.</div>
+        <div><strong>Command</strong>Must still match the engine's exact legal set.</div>
+      </div>
+      <p>
+        The HttpOnly cookie never enters React state. JavaScript stores only the
+        public game id; the browser adds the game-scoped cookie to same-origin
+        requests. The legacy bearer path remains temporary compatibility, not a
+        second source of authority.
+      </p>
+
+      <h2>The Durable Object decides in a strict order</h2>
+      <pre><code>authenticate(playerCookie)
+requireRevision(expectedRevision)
+requireLegalCommand(command)
+persist({ ...nextState, revision: revision + 1 })
+return projectPlayerView(player)</code></pre>
+      <p>
+        Authentication prevents one player from reading another hand. The
+        revision guard rejects decisions made from an old table. Exact command
+        validation catches fabricated or no-longer-legal moves. Only a durable
+        successful mutation advances the revision.
+      </p>
+
+      <div class="callout">
+        <strong>Privacy is projection, not cleanup:</strong> the Durable Object
+        constructs a separate <code>PlayerView</code> for each caller. Opponent
+        <code>cardsInHand</code> is <code>null</code>; tokens never appear in state
+        or command responses.
+      </div>
+
+      <h2>Leave and exit mean different things</h2>
+      <p>
+        In a waiting room, Leave is a revisioned server mutation: remove the
+        seat, revoke its token, advance once, clear the cookie, then clear local
+        restoration state. After play starts, Exit is local navigation only;
+        the authoritative game and seat remain available for reload recovery.
+      </p>
+
+      <h2>Retrieve the invariants</h2>
+      <details>
+        <summary>What changes after a stale or illegal command?</summary>
+        <p>
+          Nothing durable. The server returns a safe structured error, the room
+          revision stays fixed, and a stale client fetches a current full view.
+        </p>
+      </details>
+      <details>
+        <summary>Why use isolated browser contexts in acceptance tests?</summary>
+        <p>
+          Each context owns an independent cookie jar. That reproduces distinct
+          players and makes accidental cross-player session or hand leakage visible.
+        </p>
+      </details>
+
+      <h2>Primary sources</h2>
+      <ul>
+        <li><a href="https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/Cookies">MDN: Using HTTP cookies</a></li>
+        <li><a href="https://developers.cloudflare.com/durable-objects/best-practices/rules-of-durable-objects/">Cloudflare: Rules of Durable Objects</a></li>
+        <li><a href="https://playwright.dev/docs/browser-contexts">Playwright: Browser contexts</a></li>
+      </ul>
+
+      <footer>
+        Previous: <a href="./0010-keeping-a-revisioned-game-client-honest.html">Keeping a revisioned game client honest</a>.
+        Trace one rejected stale command through the Worker and Durable Object,
+        then ask the agent about any authentication, revision, or projection step
+        that is unclear.
+      </footer>
+    </main>
+  </body>
+</html>

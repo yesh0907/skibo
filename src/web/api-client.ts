@@ -2,9 +2,12 @@ import { z } from "zod";
 
 import {
   ApiErrorSchema,
+  LeaveRoomResponseSchema,
   PlayerViewSchema,
   type ApiError,
+  type LeaveRoomResponse,
   type PlayerView,
+  type RevisionedLeaveRoomRequest,
   type RevisionedPlayCommandRequest,
   type RevisionedStartGameRequest,
 } from "../shared/transport";
@@ -23,6 +26,7 @@ export interface GameApi {
   read(gameId: string): Promise<PlayerView>;
   start(gameId: string, request: RevisionedStartGameRequest): Promise<PlayerView>;
   command(gameId: string, request: RevisionedPlayCommandRequest): Promise<PlayerView>;
+  leave(gameId: string, request: RevisionedLeaveRoomRequest): Promise<LeaveRoomResponse>;
 }
 
 export class GameApiError extends Error {
@@ -102,6 +106,13 @@ export const gameApi: GameApi = {
       jsonRequest("POST", body),
       ViewResponseSchema,
     )) as PlayerView;
+  },
+  async leave(gameId, body) {
+    return (await request(
+      `/api/games/${encodeURIComponent(gameId)}/players/me`,
+      jsonRequest("DELETE", body),
+      LeaveRoomResponseSchema,
+    )) as LeaveRoomResponse;
   },
 };
 

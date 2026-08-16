@@ -51,4 +51,21 @@ describe("gameApi", () => {
       expect((error as GameApiError).payload.error.currentRevision).toBe(4);
     }
   });
+
+  test("leaves a waiting room with the current revision and cookie session", async () => {
+    const fetchMock = mock(async (_input: RequestInfo | URL, _init?: RequestInit) => Response.json({ revision: 3 }));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    await gameApi.leave("game/id", { expectedRevision: 2 });
+
+    const [path, init] = fetchMock.mock.calls[0]!;
+    expect(path).toBe("/api/games/game%2Fid/players/me");
+    expect(init).toMatchObject({
+      method: "DELETE",
+      credentials: "same-origin",
+      body: JSON.stringify({ expectedRevision: 2 }),
+    });
+    expect(JSON.stringify(init)).not.toContain("authorization");
+    expect(JSON.stringify(init)).not.toContain("playerToken");
+  });
 });

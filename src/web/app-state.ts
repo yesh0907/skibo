@@ -4,7 +4,7 @@ import type {
   TransportCommand,
 } from "../shared/transport";
 
-export type RequestKind = "restore" | "create" | "join" | "refresh" | "start" | "command";
+export type RequestKind = "restore" | "create" | "join" | "refresh" | "start" | "command" | "leave";
 
 export interface AppState {
   view: PlayerView | null;

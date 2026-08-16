@@ -31,6 +31,7 @@ function makeApi(overrides: Partial<GameApi> = {}): GameApi {
     read: mock(async () => waitingPlayerViewFixture),
     start: mock(async () => playingPlayerViewFixture),
     command: mock(async () => viewAt(4)),
+    leave: mock(async () => ({ revision: 3 })),
     ...overrides,
   };
 }
@@ -106,6 +107,25 @@ describe("React game client", () => {
     expect(start).toHaveBeenCalledWith(waitingPlayerViewFixture.gameId, { expectedRevision: 2, stockPileSize: 30 });
     resolveStart(playingPlayerViewFixture);
     await waitFor(() => expect(screen.getByRole("heading", { level: 1, name: "Alice" })).not.toBeNull());
+  });
+
+  test("leaves the waiting room on the server before clearing the local session", async () => {
+    const leave = mock(async () => ({ revision: 3 }));
+    const api = makeApi({ read: mock(async () => waitingPlayerViewFixture), leave });
+    const storage = new MemoryStorage();
+    storage.setItem(CURRENT_GAME_KEY, waitingPlayerViewFixture.gameId);
+    const user = userEvent.setup();
+    const screen = render(<App api={api} storage={storage} />);
+    await screen.findByRole("heading", { name: "The table is open." });
+
+    await user.click(screen.getByRole("button", { name: "Leave waiting room" }));
+
+    await waitFor(() => expect(leave).toHaveBeenCalledWith(
+      waitingPlayerViewFixture.gameId,
+      { expectedRevision: waitingPlayerViewFixture.revision },
+    ));
+    expect(storage.getItem(CURRENT_GAME_KEY)).toBeNull();
+    expect(screen.getByRole("heading", { name: "Pull up a seat." })).not.toBeNull();
   });
 
   test("uses server legal commands for keyboard-friendly select then destination", async () => {

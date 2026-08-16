@@ -28,16 +28,25 @@ export function App({ api = gameApi, storage = window.localStorage }: AppProps) 
   const restored = useRef(false);
   const gameId = state.view?.gameId ?? storage.getItem(CURRENT_GAME_KEY);
 
-  async function receive(request: RequestKind, operation: () => Promise<PlayerView>, options: { quiet?: boolean; restoreFocus?: boolean } = {}) {
+  async function runRequest<Result>(
+    request: RequestKind,
+    operation: () => Promise<Result>,
+    onSuccess: (result: Result) => void,
+    options: {
+      quiet?: boolean;
+      restoreFocus?: boolean;
+      recoveryGameId?: string;
+      exitOnMissingSession?: boolean;
+    } = {},
+  ) {
     if (operationInFlight.current) return;
     operationInFlight.current = true;
     const generation = sessionGeneration.current;
     dispatch({ type: "requestStarted", request });
     try {
-      const view = await operation();
+      const result = await operation();
       if (generation !== sessionGeneration.current) return;
-      storage.setItem(CURRENT_GAME_KEY, view.gameId);
-      dispatch({ type: "viewReceived", view });
+      onSuccess(result);
       if (options.restoreFocus) {
         window.setTimeout(() => {
           const target = document.querySelector<HTMLElement>("#completion-title") ?? document.querySelector<HTMLElement>("#turn-heading");
@@ -48,6 +57,11 @@ export function App({ api = gameApi, storage = window.localStorage }: AppProps) 
       const apiError = toApiError(error);
       if (generation !== sessionGeneration.current) return;
       if (apiError.error.code === "unauthorized" || apiError.error.code === "not_found") {
+        if (options.exitOnMissingSession) {
+          exit();
+          if (!options.quiet) toast.error(apiError.error.message);
+          return;
+        }
         storage.removeItem(CURRENT_GAME_KEY);
       }
       dispatch({ type: "requestFailed", error: apiError });
@@ -55,9 +69,8 @@ export function App({ api = gameApi, storage = window.localStorage }: AppProps) 
 
       if (apiError.error.code === "stale_revision") {
         try {
-          const currentGameId = state.view?.gameId;
-          if (currentGameId !== undefined) {
-            const recoveredView = await api.read(currentGameId);
+          if (options.recoveryGameId !== undefined) {
+            const recoveredView = await api.read(options.recoveryGameId);
             if (generation === sessionGeneration.current) dispatch({ type: "viewReceived", view: recoveredView });
           }
         } catch {
@@ -69,41 +82,74 @@ export function App({ api = gameApi, storage = window.localStorage }: AppProps) 
     }
   }
 
+  async function runViewRequest(
+    request: RequestKind,
+    operation: () => Promise<PlayerView>,
+    options: { quiet?: boolean; restoreFocus?: boolean } = {},
+  ) {
+    await runRequest(
+      request,
+      operation,
+      (view) => {
+        storage.setItem(CURRENT_GAME_KEY, view.gameId);
+        dispatch({ type: "viewReceived", view });
+      },
+      { ...options, recoveryGameId: state.view?.gameId },
+    );
+  }
+
   function refresh(quiet = false) {
     const currentGameId = state.view?.gameId ?? storage.getItem(CURRENT_GAME_KEY);
-    if (currentGameId !== null) void receive("refresh", () => api.read(currentGameId), { quiet });
+    if (currentGameId !== null) void runViewRequest("refresh", () => api.read(currentGameId), { quiet });
   }
 
   useEffect(() => {
     if (restored.current) return;
     restored.current = true;
     const savedGameId = storage.getItem(CURRENT_GAME_KEY);
-    if (savedGameId !== null) void receive("restore", () => api.read(savedGameId), { quiet: true });
+    if (savedGameId !== null) void runViewRequest("restore", () => api.read(savedGameId), { quiet: true });
   }, []);
 
   usePolling(state.view !== null && state.view.status !== "finished" && state.pending === null, () => refresh(true));
 
   function create(playerName: string) {
-    void receive("create", async () => {
+    void runViewRequest("create", async () => {
       const createdGameId = await api.create();
       return api.join(createdGameId, playerName);
     });
   }
 
   function join(joinGameId: string, playerName: string) {
-    void receive("join", () => api.join(joinGameId, playerName));
+    void runViewRequest("join", () => api.join(joinGameId, playerName));
   }
 
   function start(stockPileSize: number) {
     if (state.view?.status !== "waiting") return;
     const { gameId: currentGameId, revision } = state.view;
-    void receive("start", () => api.start(currentGameId, { expectedRevision: revision, stockPileSize }));
+    void runViewRequest("start", () => api.start(currentGameId, { expectedRevision: revision, stockPileSize }));
   }
 
   function submitCommand(command: TransportCommand) {
     if (state.view?.status !== "playing") return;
     const { gameId: currentGameId, revision } = state.view;
-    void receive("command", () => api.command(currentGameId, { expectedRevision: revision, command }), { restoreFocus: true });
+    void runViewRequest("command", () => api.command(currentGameId, { expectedRevision: revision, command }), { restoreFocus: true });
+  }
+
+  function leaveOrExit() {
+    if (state.view?.status !== "waiting") {
+      exit();
+      return;
+    }
+    const { gameId: currentGameId, revision } = state.view;
+    void runRequest(
+      "leave",
+      () => api.leave(currentGameId, { expectedRevision: revision }),
+      () => exit(),
+      {
+        exitOnMissingSession: true,
+        recoveryGameId: currentGameId,
+      },
+    );
   }
 
   function exit() {
@@ -127,7 +173,15 @@ export function App({ api = gameApi, storage = window.localStorage }: AppProps) 
 
   return (
     <div className="flex min-h-dvh flex-col bg-emerald-950 text-emerald-50">
-      <SiteHeader busy={busy} gameId={state.view?.gameId ?? null} onCopy={() => void copyGameCode()} onExit={exit} onRefresh={() => refresh(false)} />
+      <SiteHeader
+        busy={busy}
+        exitDisabled={state.view?.status === "waiting" && busy}
+        exitLabel={state.view?.status === "waiting" ? "Leave waiting room" : "Exit game"}
+        gameId={state.view?.gameId ?? null}
+        onCopy={() => void copyGameCode()}
+        onExit={leaveOrExit}
+        onRefresh={() => refresh(false)}
+      />
       {state.view === null ? (
         <EntryScreen busy={busy} onCreate={create} onJoin={join} />
       ) : state.view.status === "waiting" ? (

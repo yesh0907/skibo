@@ -258,6 +258,16 @@ export const PlayCommandRequestSchema = z
     command: CommandSchema,
   })
   .strict();
+export const LeaveRoomRequestSchema = z
+  .object({
+    expectedRevision: RoomRevisionSchema,
+  })
+  .strict();
+export const LeaveRoomResponseSchema = z
+  .object({
+    revision: RoomRevisionSchema,
+  })
+  .strict();
 
 export type CreateGameRequest = z.infer<typeof CreateGameRequestSchema>;
 export type JoinRoomRequest = z.infer<typeof JoinRoomRequestSchema>;
@@ -267,6 +277,10 @@ export type RevisionedStartGameRequest = z.infer<
 export type RevisionedPlayCommandRequest = z.infer<
   typeof PlayCommandRequestSchema
 >;
+export type RevisionedLeaveRoomRequest = z.infer<
+  typeof LeaveRoomRequestSchema
+>;
+export type LeaveRoomResponse = z.infer<typeof LeaveRoomResponseSchema>;
 
 /** Planned WebSocket client envelopes. Commands continue to use HTTP. */
 export const ClientWebSocketEnvelopeSchema = z.discriminatedUnion("type", [

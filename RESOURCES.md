@@ -26,6 +26,8 @@
   Primary framework reference for reducer-managed client state and action dispatch.
 - [Bun: HTML and static sites](https://bun.sh/docs/bundler/html-static)
   Primary bundler reference for HTML entry points and the Tailwind plugin.
+- [MDN: Using HTTP cookies](https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/Cookies)
+  Browser protocol reference for HttpOnly, Secure, SameSite, lifetime, and cookie path behavior.
 
 ## Wisdom (Communities)
 

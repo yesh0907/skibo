@@ -2,8 +2,8 @@
 
 ## Status
 
-- Current phase: Phase 3 playable UI complete; React refactor scaffolding underway
-- Current focus: migrate the browser client onto the shared revisioned transport contract without disrupting the playable legacy surface
+- Current phase: Phase 3 integrated HTTP application complete
+- Current focus: begin Phase 4 with native Durable Object Hibernation WebSockets while keeping HTTP as the command transport
 - Progress:
   - established project goals and collaboration model
   - chose a CLI-first architecture
@@ -74,6 +74,12 @@
   - added waiting, playing, finished, stale-snapshot, and stale-envelope fixtures as executable contract examples
   - scaffolded a reducer-backed React build at `/react/` while preserving the playable static client at `/`
   - configured Bun HTML bundling with the Tailwind plugin, selective new-york shadcn aliases, Wrangler custom builds and static assets, RTL/user-event, Playwright, and a warning-blocking React Doctor Prek hook
+  - integrated the React client with the revisioned Worker and Durable Object HTTP contract for create, join, read, start, command, waiting-room leave, local exit, polling, and reload restoration
+  - moved React player authority into game-scoped HttpOnly same-origin cookies while storing only the public game id in browser storage
+  - kept temporary bearer authentication and the legacy join token response for the existing diagnostic and static clients
+  - shared the revisioned leave request and response schemas across the Worker and React API client
+  - verified player-safe projections in real isolated browser contexts so each player receives only their own hand and no persisted room token fields
+  - added Playwright acceptance coverage for create/join/start, a legal move, reload restoration, waiting-room leave, stale and illegal command rejection, safe errors, and unchanged revisions after rejection
 
 ## Working Agreement
 
@@ -411,11 +417,13 @@ Goal: make the authoritative game easy to play and iterate on in a browser.
 Build:
 
 - create and join room flow
-- locally persisted player token
+- game-scoped HttpOnly cookie sessions with only the public game id persisted in browser storage
 - waiting-room roster and start action
+- revision-guarded waiting-room leave and local exit after start
 - game table for build, stock, hand, and discard piles
 - exact legal-command interaction
 - HTTP polling for opponent turns
+- isolated-context browser acceptance coverage for the integrated Worker/DO/React boundary
 
 ## Phase 4: Real-Time Transport
 
@@ -468,21 +476,15 @@ For this project, a good mental shortcut is:
 
 ## Immediate Next Step
 
-The next concrete implementation step is to migrate one complete browser flow
-onto the React reducer and Zod boundary while keeping the legacy client usable:
+The integrated Phase 3 HTTP milestone is complete. The next concrete slice is
+native Durable Object Hibernation WebSockets:
 
-- project the current Durable Object state into the new `PlayerView` shape
-- add durable room revision persistence and guarded transitions as a dedicated backend slice
-- build the React API client around schema parsing and structured errors
-- migrate create/join/waiting as the first complete React flow
-- defer cookies, leave behavior, and WebSockets to their own tested slices
+- authenticate and validate the Worker WebSocket upgrade before forwarding it to the room Durable Object
+- use the Hibernation API to attach player identity and resume connections safely
+- broadcast only full, revisioned, player-specific `PlayerView` envelopes after durable mutations
+- keep create, join, start, commands, and leave on the existing HTTP routes
+- replace the React polling hook at one isolated subscription seam while retaining HTTP refresh for recovery
+- extend the isolated-context Playwright suite for live opponent updates and reconnect behavior
 
-Supporting scaffolding now exists for the completed Phase 0 spike:
-
-- `src/shared/room-state.ts`
-- `src/worker/index.ts`
-- `src/worker/game-room-do.ts`
-- `src/tests/game-room-do.test.ts`
-- `src/cli/index.ts`
-
-That gives us a working reference boundary for the Durable Object spike, so the next learning-heavy work can stay focused on pure game rules.
+Phase 4 is not yet implemented; the current application deliberately polls over
+HTTP and contains only the planned state-only WebSocket envelope schemas.

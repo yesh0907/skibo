@@ -1,8 +1,9 @@
 # Room Revision Contract
 
-The React transport will treat each player-specific room view as a versioned
-snapshot. This checkpoint defines the contract only; the Worker and Durable
-Object do not apply revision transitions yet.
+The React transport treats each player-specific room view as a versioned
+snapshot. The Worker and Durable Object enforce this contract for all current
+HTTP mutations. The planned WebSocket transport will distribute the same full
+snapshots without adding a second command path.
 
 ## Server rules
 
@@ -12,7 +13,7 @@ Object do not apply revision transitions yet.
 - Every `PlayerView` carries the revision of the durable state from which it was
   projected.
 - Mutations made from an existing view carry `expectedRevision`. A mismatch
-  will eventually return a `stale_revision` API error without applying the
+  returns a `stale_revision` API error without applying the
   mutation. Create and join are exceptions because those callers do not yet
   hold an authenticated player view.
 

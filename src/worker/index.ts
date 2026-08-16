@@ -5,6 +5,7 @@ import {
   CommandSchema,
   CreateGameRequestSchema,
   JoinRoomRequestSchema,
+  LeaveRoomRequestSchema,
   PlayerViewSchema,
   PlayCommandRequestSchema,
   StartGameRequestSchema,
@@ -25,10 +26,6 @@ const GameIdSchema = z
   .max(80)
   .regex(/^[A-Za-z0-9_-]+$/);
 const PlayerTokenSchema = z.string().min(16).max(256);
-const LeaveRoomRequestSchema = z
-  .object({ expectedRevision: z.number().int().nonnegative() })
-  .strict();
-
 function json(data: unknown, init?: ResponseInit): Response {
   return Response.json(data, init);
 }
