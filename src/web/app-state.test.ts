@@ -28,4 +28,32 @@ describe("appReducer", () => {
     expect(failed.pending).toBeNull();
     expect(failed.error?.error.code).toBe("room_conflict");
   });
+
+  test("ignores duplicate live views without unlocking an HTTP mutation", () => {
+    const ready = appReducer(initialAppState, {
+      type: "viewReceived",
+      view: playingPlayerViewFixture,
+    });
+    const pending = appReducer(ready, {
+      type: "requestStarted",
+      request: "command",
+    });
+    const duplicate = appReducer(pending, {
+      type: "liveViewReceived",
+      view: { ...playingPlayerViewFixture },
+    });
+    const stale = appReducer(duplicate, {
+      type: "liveViewReceived",
+      view: stalePlayerViewFixture,
+    });
+    const newer = appReducer(stale, {
+      type: "liveViewReceived",
+      view: { ...playingPlayerViewFixture, revision: 4 },
+    });
+
+    expect(duplicate).toBe(pending);
+    expect(stale).toBe(pending);
+    expect(newer.view?.revision).toBe(4);
+    expect(newer.pending).toBe("command");
+  });
 });

@@ -8,7 +8,11 @@ import { EntryScreen } from "./components/entry-screen";
 import { GameTable } from "./components/game-table";
 import { SiteHeader } from "./components/site-header";
 import { WaitingRoom } from "./components/waiting-room";
-import { usePolling } from "./hooks/use-polling";
+import {
+  useLiveGameUpdates,
+  type LiveConnectionDependencies,
+  type LiveUpdateStatus,
+} from "./hooks/use-live-game-updates";
 
 interface StorageAdapter {
   getItem(key: string): string | null;
@@ -19,9 +23,14 @@ interface StorageAdapter {
 export interface AppProps {
   api?: GameApi;
   storage?: StorageAdapter;
+  liveConnection?: LiveConnectionDependencies;
 }
 
-export function App({ api = gameApi, storage = window.localStorage }: AppProps) {
+export function App({
+  api = gameApi,
+  storage = window.localStorage,
+  liveConnection,
+}: AppProps) {
   const [state, dispatch] = useReducer(appReducer, initialAppState);
   const operationInFlight = useRef(false);
   const sessionGeneration = useRef(0);
@@ -74,7 +83,7 @@ export function App({ api = gameApi, storage = window.localStorage }: AppProps) 
             if (generation === sessionGeneration.current) dispatch({ type: "viewReceived", view: recoveredView });
           }
         } catch {
-          // The last valid view remains visible; the next poll or manual refresh retries.
+          // The last valid view remains visible; reconnect or manual refresh retries.
         }
       }
     } finally {
@@ -110,7 +119,16 @@ export function App({ api = gameApi, storage = window.localStorage }: AppProps) 
     if (savedGameId !== null) void runViewRequest("restore", () => api.read(savedGameId), { quiet: true });
   }, []);
 
-  usePolling(state.view !== null && state.view.status !== "finished" && state.pending === null, () => refresh(true));
+  const liveUpdates = useLiveGameUpdates({
+    ...liveConnection,
+    enabled: state.view !== null && state.view.status !== "finished",
+    gameId: state.view?.gameId ?? null,
+    refreshSnapshot: (currentGameId) => api.read(currentGameId),
+    onView: (view) => {
+      storage.setItem(CURRENT_GAME_KEY, view.gameId);
+      dispatch({ type: "liveViewReceived", view });
+    },
+  });
 
   function create(playerName: string) {
     void runViewRequest("create", async () => {
@@ -182,6 +200,18 @@ export function App({ api = gameApi, storage = window.localStorage }: AppProps) 
         onExit={leaveOrExit}
         onRefresh={() => refresh(false)}
       />
+      {state.view !== null ? (
+        <p
+          aria-live="polite"
+          className="border-b border-emerald-800 bg-emerald-950 px-4 py-1 text-center text-xs text-emerald-200"
+          role="status"
+        >
+          {liveStatusLabel(liveUpdates.status)}
+          {liveUpdates.error === null
+            ? ""
+            : ` ${liveUpdates.error.error.message}`}
+        </p>
+      ) : null}
       {state.view === null ? (
         <EntryScreen busy={busy} onCreate={create} onJoin={join} />
       ) : state.view.status === "waiting" ? (
@@ -200,4 +230,17 @@ export function App({ api = gameApi, storage = window.localStorage }: AppProps) 
       <Toaster closeButton position="top-center" richColors theme="dark" />
     </div>
   );
+}
+
+function liveStatusLabel(status: LiveUpdateStatus): string {
+  switch (status) {
+    case "connected":
+      return "Live updates connected."
+    case "connecting":
+      return "Connecting live updates…"
+    case "reconnecting":
+      return "Reconnecting live updates…"
+    case "disconnected":
+      return "Live updates disconnected."
+  }
 }

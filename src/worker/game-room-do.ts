@@ -1,4 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
+import { z } from "zod";
 
 import type { Command } from "../shared/command";
 import {
@@ -7,6 +8,7 @@ import {
   resolveCommand,
 } from "../shared/game-engine";
 import { createGameState } from "../shared/game-state";
+import { ServerWebSocketEnvelopeSchema } from "../shared/transport";
 import type {
   CommandResult,
   GameView,
@@ -25,9 +27,66 @@ export interface Env {
 const STORAGE_KEY = "game-room-state";
 const MAX_PLAYERS = 6;
 const textEncoder = new TextEncoder();
+export const INTERNAL_PLAYER_TOKEN_HEADER = "x-skibo-player-token";
+const ConnectionAttachmentSchema = z
+  .object({
+    version: z.literal(1),
+    playerToken: z.string().min(16).max(256),
+    playerName: z.string().trim().min(1).max(32),
+  })
+  .strict();
 
 export class GameRoomDO extends DurableObject<Env> {
   #state: RoomState | undefined;
+
+  override async fetch(request: Request): Promise<Response> {
+    if (
+      request.method !== "GET" ||
+      request.headers.get("upgrade")?.toLowerCase() !== "websocket"
+    ) {
+      return new Response("Expected a WebSocket upgrade", { status: 426 });
+    }
+
+    const state = await this.#loadState();
+    const player = this.#authenticate(
+      state,
+      request.headers.get(INTERNAL_PLAYER_TOKEN_HEADER) ?? "",
+    );
+    const pair = new WebSocketPair();
+    const [client, server] = Object.values(pair) as [WebSocket, WebSocket];
+    this.ctx.acceptWebSocket(server);
+    server.serializeAttachment({
+      version: 1,
+      playerToken: player.token,
+      playerName: player.name,
+    });
+
+    return new Response(null, { status: 101, webSocket: client });
+  }
+
+  override webSocketMessage(
+    socket: WebSocket,
+    _message: string | ArrayBuffer,
+  ): void {
+    socket.close(1008, "Client messages are not supported");
+  }
+
+  override webSocketClose(
+    _socket: WebSocket,
+    _code: number,
+    _reason: string,
+    _wasClean: boolean,
+  ): void {}
+
+  override webSocketError(socket: WebSocket, error: unknown): void {
+    console.error(
+      JSON.stringify({
+        event: "game_websocket_error",
+        message: error instanceof Error ? error.message : "WebSocket error",
+      }),
+    );
+    socket.close(1011, "Live update connection failed");
+  }
 
   async initialize(): Promise<RoomSummary> {
     const cached = await this.ctx.storage.get<unknown>(STORAGE_KEY);
@@ -68,7 +127,7 @@ export class GameRoomDO extends DurableObject<Env> {
       name: playerName,
       token: crypto.randomUUID(),
     };
-    const nextState = await this.#persist({
+    const nextState = await this.#persistAndBroadcast({
       ...state,
       revision: state.revision + 1,
       players: [...state.players, player],
@@ -110,7 +169,7 @@ export class GameRoomDO extends DurableObject<Env> {
       state.players.map((roomPlayer) => roomPlayer.name),
       stockPileSize,
     );
-    const nextState = await this.#persist({
+    const nextState = await this.#persistAndBroadcast({
       ...state,
       revision: state.revision + 1,
       status: "started",
@@ -152,7 +211,7 @@ export class GameRoomDO extends DurableObject<Env> {
     }
 
     const resolution = resolveCommand(command, state.gameState);
-    const nextState = await this.#persist({
+    const nextState = await this.#persistAndBroadcast({
       ...state,
       revision: state.revision + 1,
       status: resolution.nextState.isGameOver ? "finished" : "started",
@@ -182,12 +241,46 @@ export class GameRoomDO extends DurableObject<Env> {
       );
     }
 
-    const nextState = await this.#persist({
+    const nextState = await this.#persistAndBroadcast({
       ...state,
       revision: state.revision + 1,
       players: state.players.filter((candidate) => candidate !== player),
     });
     return { revision: nextState.revision };
+  }
+
+  #broadcast(state: RoomState): void {
+    for (const socket of this.ctx.getWebSockets()) {
+      const attachment = ConnectionAttachmentSchema.safeParse(
+        socket.deserializeAttachment(),
+      );
+      if (!attachment.success) {
+        socket.close(1008, "Invalid live update session");
+        continue;
+      }
+
+      try {
+        const player = this.#authenticate(state, attachment.data.playerToken);
+        if (player.name !== attachment.data.playerName) {
+          socket.close(1008, "Invalid live update session");
+          continue;
+        }
+        const envelope = ServerWebSocketEnvelopeSchema.parse({
+          version: 1,
+          type: "room.view",
+          view: createGameView(state, player),
+        });
+        socket.send(JSON.stringify(envelope));
+      } catch {
+        socket.close(1008, "Live update session expired");
+      }
+    }
+  }
+
+  async #persistAndBroadcast(state: RoomState): Promise<RoomState> {
+    const persisted = await this.#persist(state);
+    this.#broadcast(persisted);
+    return persisted;
   }
 
   async #loadState(): Promise<RoomState> {

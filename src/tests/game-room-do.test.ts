@@ -1,6 +1,7 @@
 import { describe, expect, mock, test } from "bun:test";
 
 import type { RoomState } from "../shared/room-state";
+import { ServerWebSocketEnvelopeSchema } from "../shared/transport";
 import type { Env as GameRoomEnv } from "../worker/game-room-do";
 
 mock.module("cloudflare:workers", () => ({
@@ -15,6 +16,44 @@ mock.module("cloudflare:workers", () => ({
 const { GameRoomDO } = await import("../worker/game-room-do");
 
 type TestRoom = InstanceType<typeof GameRoomDO>;
+
+class TestWebSocket extends EventTarget implements WebSocket {
+  attachment: unknown = null;
+  readonly sent: string[] = [];
+  readonly closes: Array<{ code?: number; reason?: string }> = [];
+  readonly CONNECTING = 0;
+  readonly OPEN = 1;
+  readonly CLOSING = 2;
+  readonly CLOSED = 3;
+  binaryType: "blob" | "arraybuffer" = "arraybuffer";
+  readonly bufferedAmount = 0;
+  readonly extensions = "";
+  onclose: ((this: WebSocket, event: CloseEvent) => unknown) | null = null;
+  onerror: ((this: WebSocket, event: Event) => unknown) | null = null;
+  onmessage: ((this: WebSocket, event: MessageEvent) => unknown) | null = null;
+  onopen: ((this: WebSocket, event: Event) => unknown) | null = null;
+  readonly protocol = "";
+  readonly readyState = 1;
+  readonly url = "";
+
+  accept(): void {}
+
+  serializeAttachment(value: unknown): void {
+    this.attachment = structuredClone(value);
+  }
+
+  deserializeAttachment(): unknown {
+    return structuredClone(this.attachment);
+  }
+
+  send(message: string | ArrayBuffer): void {
+    this.sent.push(String(message));
+  }
+
+  close(code?: number, reason?: string): void {
+    this.closes.push({ code, reason });
+  }
+}
 
 class InMemoryDurableObjectStorage {
   #values = new Map<string, unknown>();
@@ -125,9 +164,11 @@ class InMemoryDurableObjectStorage {
 function createRoom(
   gameId: string,
   storage = new InMemoryDurableObjectStorage(),
+  sockets: TestWebSocket[] = [],
 ): {
   room: TestRoom;
   storage: InMemoryDurableObjectStorage;
+  sockets: TestWebSocket[];
 } {
   const ctx = {
     storage,
@@ -140,7 +181,7 @@ function createRoom(
     waitUntil: (_promise: Promise<unknown>) => {},
     blockConcurrencyWhile: async <T>(callback: () => Promise<T>) => callback(),
     acceptWebSocket: (_ws: WebSocket, _tags?: string[]) => {},
-    getWebSockets: (_tag?: string) => [],
+    getWebSockets: (_tag?: string) => sockets,
     setWebSocketAutoResponse: (
       _maybeReqResp?: WebSocketRequestResponsePair,
     ) => {},
@@ -157,6 +198,7 @@ function createRoom(
   return {
     room: new GameRoomDO(ctx, {} as GameRoomEnv),
     storage,
+    sockets,
   };
 }
 
@@ -283,6 +325,108 @@ describe("GameRoomDO", () => {
     expect(bobView.players.find((player) => player.name === "Bob")?.cardsInHand)
       .toHaveLength(5);
     expect(bobView.legalCommands).toEqual([]);
+  });
+
+  test("restores attached player identities and broadcasts private views after hibernation", async () => {
+    const setup = createRoom("game_test");
+    await setup.room.initialize();
+    const alice = await setup.room.join("Alice");
+    const bob = await setup.room.join("Bob");
+    const aliceSocket = new TestWebSocket();
+    const bobSocket = new TestWebSocket();
+    aliceSocket.serializeAttachment({
+      version: 1,
+      playerToken: alice.playerToken,
+      playerName: "Alice",
+    });
+    bobSocket.serializeAttachment({
+      version: 1,
+      playerToken: bob.playerToken,
+      playerName: "Bob",
+    });
+
+    const rehydrated = createRoom("game_test", setup.storage, [
+      aliceSocket,
+      bobSocket,
+    ]).room;
+    await rehydrated.start(alice.playerToken, 2, 5);
+
+    const aliceEnvelope = ServerWebSocketEnvelopeSchema.parse(
+      JSON.parse(aliceSocket.sent.at(-1)!),
+    );
+    const bobEnvelope = ServerWebSocketEnvelopeSchema.parse(
+      JSON.parse(bobSocket.sent.at(-1)!),
+    );
+    expect(aliceEnvelope.view.viewerName).toBe("Alice");
+    expect(bobEnvelope.view.viewerName).toBe("Bob");
+    expect(
+      aliceEnvelope.view.players.find((player) => player.name === "Alice")
+        ?.cardsInHand,
+    ).toHaveLength(5);
+    expect(
+      aliceEnvelope.view.players.find((player) => player.name === "Bob")
+        ?.cardsInHand,
+    ).toBeNull();
+    expect(
+      bobEnvelope.view.players.find((player) => player.name === "Bob")
+        ?.cardsInHand,
+    ).toHaveLength(5);
+    expect(
+      bobEnvelope.view.players.find((player) => player.name === "Alice")
+        ?.cardsInHand,
+    ).toBeNull();
+  });
+
+  test("rejects client messages and closes failed or invalid connections safely", async () => {
+    const { room } = createRoom("game_test");
+    const messageSocket = new TestWebSocket();
+    const errorSocket = new TestWebSocket();
+    const closeSocket = new TestWebSocket();
+
+    room.webSocketMessage(messageSocket, "command");
+    room.webSocketError(
+      errorSocket,
+      new Error("private runtime detail"),
+    );
+    room.webSocketClose(
+      closeSocket,
+      1000,
+      "done",
+      true,
+    );
+
+    expect(messageSocket.closes).toEqual([
+      { code: 1008, reason: "Client messages are not supported" },
+    ]);
+    expect(errorSocket.closes).toEqual([
+      { code: 1011, reason: "Live update connection failed" },
+    ]);
+    expect(closeSocket.closes).toEqual([]);
+  });
+
+  test("closes sockets whose hibernation attachment is invalid or revoked", async () => {
+    const setup = createRoom("game_test");
+    await setup.room.initialize();
+    const alice = await setup.room.join("Alice");
+    const invalidSocket = new TestWebSocket();
+    invalidSocket.serializeAttachment({ playerName: "Alice" });
+    const revokedSocket = new TestWebSocket();
+    revokedSocket.serializeAttachment({
+      version: 1,
+      playerToken: alice.playerToken,
+      playerName: "Mallory",
+    });
+    const rehydrated = createRoom("game_test", setup.storage, [
+      invalidSocket,
+      revokedSocket,
+    ]).room;
+
+    await rehydrated.join("Bob");
+
+    expect(invalidSocket.closes[0]?.code).toBe(1008);
+    expect(revokedSocket.closes[0]?.code).toBe(1008);
+    expect(invalidSocket.sent).toEqual([]);
+    expect(revokedSocket.sent).toEqual([]);
   });
 
   test("rejects invalid player tokens for views, starts, and commands", async () => {

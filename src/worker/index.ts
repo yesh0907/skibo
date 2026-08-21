@@ -11,7 +11,11 @@ import {
   StartGameRequestSchema,
   type ApiError,
 } from "../shared/transport";
-import { GameRoomDO, type Env } from "./game-room-do";
+import {
+  GameRoomDO,
+  INTERNAL_PLAYER_TOKEN_HEADER,
+  type Env,
+} from "./game-room-do";
 import { parseRoomError } from "./room-error";
 
 export { GameRoomDO };
@@ -142,6 +146,20 @@ function requirePlayerToken(request: Request): string {
   return result.data;
 }
 
+function requirePlayerCookieToken(request: Request): string {
+  const result = PlayerTokenSchema.safeParse(
+    readCookie(request, PLAYER_COOKIE_NAME),
+  );
+  if (!result.success) {
+    throw new HttpError(
+      401,
+      "unauthorized",
+      "A cookie-authenticated player session is required",
+    );
+  }
+  return result.data;
+}
+
 function readCookie(request: Request, name: string): string | null {
   const cookieHeader = request.headers.get("cookie");
   if (cookieHeader === null) {
@@ -218,6 +236,24 @@ export default {
         throw new HttpError(404, "not_found", "Not found");
       }
       const room = env.GAME_ROOM.getByName(gameId);
+
+      if (
+        request.method === "GET" &&
+        url.pathname === `/api/games/${gameId}/ws`
+      ) {
+        if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
+          return apiError(
+            426,
+            "invalid_request",
+            "Expected a WebSocket upgrade",
+          );
+        }
+        const playerToken = requirePlayerCookieToken(request);
+        await room.getView(playerToken);
+        const headers = new Headers(request.headers);
+        headers.set(INTERNAL_PLAYER_TOKEN_HEADER, playerToken);
+        return room.fetch(new Request(request, { headers }));
+      }
 
       if (
         request.method === "GET" &&

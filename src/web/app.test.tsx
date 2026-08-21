@@ -5,7 +5,7 @@ import type { PlayerView } from "../shared/transport";
 import { finishedPlayerViewFixture, playingPlayerViewFixture, waitingPlayerViewFixture } from "../tests/fixtures/transport";
 import type { GameApi } from "./api-client";
 import { CURRENT_GAME_KEY, GameApiError } from "./api-client";
-import { POLL_INTERVAL_MS } from "./hooks/use-polling";
+import type { LiveSocket } from "./hooks/use-live-game-updates";
 
 GlobalRegistrator.register();
 
@@ -18,6 +18,14 @@ class MemoryStorage {
   getItem(key: string) { return this.values.get(key) ?? null; }
   setItem(key: string, value: string) { this.values.set(key, value); }
   removeItem(key: string) { this.values.delete(key); }
+}
+
+class TestSocket implements LiveSocket {
+  onopen: (() => void) | null = null;
+  onmessage: ((event: { data: unknown }) => void) | null = null;
+  onclose: (() => void) | null = null;
+  onerror: (() => void) | null = null;
+  close() {}
 }
 
 function viewAt(revision: number): PlayerView {
@@ -40,6 +48,10 @@ beforeAll(() => {
   Object.defineProperty(globalThis.navigator, "clipboard", {
     configurable: true,
     value: { writeText: mock(async () => undefined) },
+  });
+  Object.defineProperty(globalThis, "WebSocket", {
+    configurable: true,
+    value: TestSocket,
   });
 });
 
@@ -215,29 +227,66 @@ describe("React game client", () => {
     expect(refresh.hasAttribute("disabled")).toBeFalse();
   });
 
-  test("routes temporary polling through the isolated refresh seam", async () => {
-    const originalSetInterval = window.setInterval;
-    let poll: (() => void) | null = null;
-    window.setInterval = ((handler: TimerHandler, timeout?: number) => {
-      if (timeout === POLL_INTERVAL_MS && typeof handler === "function") poll = () => handler();
-      return 77;
-    }) as typeof window.setInterval;
-    try {
-      const read = mock(async () => playingPlayerViewFixture);
-      const api = makeApi({ read });
-      const storage = new MemoryStorage();
-      storage.setItem(CURRENT_GAME_KEY, playingPlayerViewFixture.gameId);
-      render(<App api={api} storage={storage} />);
+  test("applies live views and refreshes a snapshot after reconnect", async () => {
+    const sockets: TestSocket[] = [];
+    const scheduled: Array<() => void> = [];
+    const read = mock()
+      .mockResolvedValueOnce(playingPlayerViewFixture)
+      .mockResolvedValueOnce(playingPlayerViewFixture)
+      .mockResolvedValueOnce(viewAt(5));
+    const api = makeApi({ read });
+    const storage = new MemoryStorage();
+    storage.setItem(CURRENT_GAME_KEY, playingPlayerViewFixture.gameId);
+    const screen = render(
+      <App
+        api={api}
+        liveConnection={{
+          createSocket: () => {
+            const socket = new TestSocket();
+            sockets.push(socket);
+            return socket;
+          },
+          schedule: (callback) => {
+            scheduled.push(callback);
+            return scheduled.length;
+          },
+          cancel: () => undefined,
+          random: () => 0,
+          location: { protocol: "https:", host: "skibo.example" },
+        }}
+        storage={storage}
+      />,
+    );
 
-      await waitFor(() => expect(poll).not.toBeNull());
-      await act(async () => {
-        (poll as (() => void) | null)?.();
-        await Promise.resolve();
-      });
-      await waitFor(() => expect(read).toHaveBeenCalledTimes(2));
-    } finally {
-      window.setInterval = originalSetInterval;
-    }
+    await waitFor(() => expect(sockets).toHaveLength(1));
+    await act(async () => {
+      sockets[0]!.onopen?.();
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(read).toHaveBeenCalledTimes(2));
+    expect(screen.getByText("Live updates connected.")).not.toBeNull();
+
+    act(() =>
+      sockets[0]!.onmessage?.({
+        data: JSON.stringify({
+          version: 1,
+          type: "room.view",
+          view: viewAt(4),
+        }),
+      }),
+    );
+    await waitFor(() => expect(screen.getByText(/revision 4/)).not.toBeNull());
+
+    act(() => sockets[0]!.onclose?.());
+    expect(screen.getByText(/Reconnecting live updates/)).not.toBeNull();
+    act(() => scheduled[0]?.());
+    await waitFor(() => expect(sockets).toHaveLength(2));
+    await act(async () => {
+      sockets[1]!.onopen?.();
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(screen.getByText(/revision 5/)).not.toBeNull());
+    expect(read).toHaveBeenCalledTimes(3);
   });
 
   test("keeps Exit final when an older request completes late", async () => {

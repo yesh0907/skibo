@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hibernating Connections, Private Projections</title>
+    <link rel="stylesheet" href="../assets/lesson.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <div class="kicker">Skip-Bo Real-Time Transport · Lesson 0012</div>
+        <h1>Hibernating connections, private projections</h1>
+        <p class="lead">
+          A shared room can broadcast one revision without ever broadcasting one
+          shared view.
+        </p>
+        <div class="meta">Completed slice: native Durable Object Hibernation WebSockets</div>
+      </header>
+
+      <h2>The socket carries views, not commands</h2>
+      <div class="flow">
+        <div><strong>HTTP</strong>Authenticates and applies revisioned mutations.</div>
+        <div><strong>Storage</strong>Persists the next canonical room revision.</div>
+        <div><strong>WebSocket</strong>Delivers a fresh private projection.</div>
+      </div>
+      <p>
+        Keeping commands on the existing Worker-to-Durable-Object RPC path avoids
+        a second mutation protocol. The WebSocket accepts no application messages;
+        it only delivers a versioned <code>room.view</code> envelope from the server.
+      </p>
+
+      <h2>Identity must survive memory eviction</h2>
+      <pre><code>ctx.acceptWebSocket(server)
+server.serializeAttachment({ version: 1, playerToken, playerName })
+
+for (const socket of ctx.getWebSockets()) {
+  const identity = socket.deserializeAttachment()
+  send(projectPlayerView(persistedRoom, identity))
+}</code></pre>
+      <p>
+        Hibernation keeps the network connection alive while the Durable Object's
+        in-memory fields disappear. The serialized attachment is the durable link
+        back to the authenticated player. On every broadcast, the room validates
+        that attachment against current membership before projecting a view.
+      </p>
+
+      <div class="callout">
+        <strong>One revision, many payloads:</strong> Alice and Bob receive the same
+        authoritative revision number, but Alice's envelope contains only Alice's
+        hand and Bob's contains only Bob's. Privacy is preserved by projection at
+        send time, not by filtering a shared broadcast afterward.
+      </div>
+
+      <h2>Reconnect closes the missed-update gap</h2>
+      <p>
+        A disconnected browser keeps its last valid view, retries with capped
+        exponential backoff and jitter, and performs one authenticated HTTP snapshot
+        after every successful connection. A late snapshot or duplicate WebSocket
+        frame cannot roll state backward because the reducer accepts only a strictly
+        newer room revision.
+      </p>
+
+      <h2>Retrieve the invariants</h2>
+      <details>
+        <summary>Why not send one canonical game state to every socket?</summary>
+        <p>
+          Canonical state contains every private hand and player token. Each socket
+          must receive a separately constructed <code>PlayerView</code> for its
+          authenticated identity.
+        </p>
+      </details>
+      <details>
+        <summary>Why refresh over HTTP after the socket reconnects?</summary>
+        <p>
+          WebSocket delivery is not a replay log. The full snapshot closes any gap
+          created while the connection was unavailable; monotonic revisions resolve
+          races between that snapshot and newer live frames.
+        </p>
+      </details>
+
+      <h2>Primary sources</h2>
+      <ul>
+        <li><a href="https://developers.cloudflare.com/durable-objects/best-practices/websockets/">Cloudflare: Use WebSockets with Durable Objects</a></li>
+        <li><a href="https://developers.cloudflare.com/durable-objects/api/state/">Cloudflare: Durable Object State API</a></li>
+      </ul>
+
+      <footer>
+        Previous: <a href="./0011-cookies-identify-revisions-order.html">Cookies identify; revisions order</a>.
+        Trace one move from durable persistence to Alice's and Bob's distinct
+        envelopes, then ask the agent about any hibernation or recovery step that
+        is unclear.
+      </footer>
+    </main>
+  </body>
+</html>

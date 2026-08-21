@@ -2,8 +2,8 @@
 
 ## Status
 
-- Current phase: Phase 3 integrated HTTP application complete
-- Current focus: begin Phase 4 with native Durable Object Hibernation WebSockets while keeping HTTP as the command transport
+- Current phase: Phase 4 native Hibernation WebSocket transport complete
+- Current focus: begin Phase 5 hardening around reconnect edge cases and real friend playtesting
 - Progress:
   - established project goals and collaboration model
   - chose a CLI-first architecture
@@ -80,6 +80,14 @@
   - shared the revisioned leave request and response schemas across the Worker and React API client
   - verified player-safe projections in real isolated browser contexts so each player receives only their own hand and no persisted room token fields
   - added Playwright acceptance coverage for create/join/start, a legal move, reload restoration, waiting-room leave, stale and illegal command rejection, safe errors, and unchanged revisions after rejection
+  - added a cookie-authenticated Worker WebSocket upgrade route that validates room ownership before forwarding the request with `stub.fetch`
+  - adopted the native Durable Object Hibernation API with serialized, versioned player attachments and message, close, and error lifecycle handlers
+  - broadcast a separately projected, Zod-validated `PlayerView` envelope to every authenticated connection only after durable room mutations succeed
+  - kept all gameplay mutations on revisioned HTTP Worker-to-DO RPC and rejected WebSocket client messages
+  - replaced the React 2.5-second polling hook with a bounded exponential reconnect controller, online/offline recovery, and an HTTP snapshot after every connection
+  - retained the last valid view through transient live-update errors and exposed connection state through an accessible live status region
+  - removed background polling from both browser surfaces while retaining manual HTTP refresh and temporary HTTP bearer compatibility
+  - proved live private opponent updates and reconnect snapshot recovery with two isolated browser contexts through local Wrangler Chromium acceptance
 
 ## Working Agreement
 
@@ -429,13 +437,13 @@ Build:
 
 Goal: make multiplayer updates live.
 
-Build:
+Completed:
 
-- WebSocket upgrade route
-- client registration in the DO
-- broadcast on game state changes
-- reconnect support
-- if it stays manageable, use the DO hibernation WebSocket API so the project teaches a Cloudflare-specific real-time pattern
+- cookie-authenticated WebSocket upgrade route with Worker-side ownership validation
+- native Hibernation WebSocket registration and player attachment recovery in the DO
+- versioned, player-specific full-view broadcasts after persisted game state changes
+- bounded reconnect support with an HTTP snapshot on every connection
+- no client command protocol and no background fallback polling
 
 ## Phase 5: Hardening
 
@@ -476,15 +484,9 @@ For this project, a good mental shortcut is:
 
 ## Immediate Next Step
 
-The integrated Phase 3 HTTP milestone is complete. The next concrete slice is
-native Durable Object Hibernation WebSockets:
+Phase 4 is complete. The next concrete slice is focused Phase 5 hardening:
 
-- authenticate and validate the Worker WebSocket upgrade before forwarding it to the room Durable Object
-- use the Hibernation API to attach player identity and resume connections safely
-- broadcast only full, revisioned, player-specific `PlayerView` envelopes after durable mutations
-- keep create, join, start, commands, and leave on the existing HTTP routes
-- replace the React polling hook at one isolated subscription seam while retaining HTTP refresh for recovery
-- extend the isolated-context Playwright suite for live opponent updates and reconnect behavior
-
-Phase 4 is not yet implemented; the current application deliberately polls over
-HTTP and contains only the planned state-only WebSocket envelope schemas.
+- exercise longer friend-play sessions and deploy-induced WebSocket disconnects in a non-production environment
+- decide whether waiting-room seat expiry or explicit post-start forfeiture belongs in the product
+- add observability for reconnect frequency and repeated socket failures without logging private player state
+- revisit the temporary legacy bearer compatibility seam once non-React diagnostic clients no longer require it

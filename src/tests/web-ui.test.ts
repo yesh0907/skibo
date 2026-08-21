@@ -21,6 +21,10 @@ describe("browser UI artifacts", () => {
     const script = await Bun.file(new URL("app.js", publicRoot)).text();
 
     expect(script).toContain("authorization: `Bearer ${state.playerToken}`");
+    expect(script).toContain("new WebSocket(");
+    expect(script).not.toContain("setInterval");
+    expect(script).toContain("expectedRevision: state.view.revision");
+    expect(script).toContain("/players/me");
     expect(script).toContain("state.view.legalCommands.filter");
     expect(script).toContain('card.addEventListener("pointerdown"');
     expect(script).toContain('destination.dataset.dropType');

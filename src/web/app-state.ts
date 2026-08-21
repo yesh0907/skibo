@@ -16,6 +16,7 @@ export interface AppState {
 export type AppAction =
   | { type: "requestStarted"; request: RequestKind }
   | { type: "viewReceived"; view: PlayerView }
+  | { type: "liveViewReceived"; view: PlayerView }
   | { type: "requestFailed"; error: ApiError }
   | { type: "commandSelected"; command: TransportCommand | null }
   | { type: "sessionExited" };
@@ -39,6 +40,15 @@ export function appReducer(state: AppState, action: AppAction): AppState {
         view: action.view,
         pending: null,
         error: null,
+        selectedCommand: null,
+      };
+    case "liveViewReceived":
+      if (state.view !== null && action.view.revision <= state.view.revision) {
+        return state;
+      }
+      return {
+        ...state,
+        view: action.view,
         selectedCommand: null,
       };
     case "requestFailed":

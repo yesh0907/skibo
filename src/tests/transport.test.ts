@@ -3,7 +3,6 @@ import { describe, expect, test } from "bun:test";
 import {
   type ApiError,
   ApiErrorSchema,
-  ClientWebSocketEnvelopeSchema,
   INITIAL_ROOM_REVISION,
   JoinRoomRequestSchema,
   PlayerViewSchema,
@@ -15,7 +14,7 @@ import {
   finishedPlayerViewFixture,
   playingPlayerViewFixture,
   stalePlayerViewFixture,
-  staleRoomEnvelopeFixture,
+  playingRoomEnvelopeFixture,
   waitingPlayerViewFixture,
 } from "./fixtures/transport";
 
@@ -29,8 +28,8 @@ describe("transport contracts", () => {
     ]) {
       expect(PlayerViewSchema.parse(fixture)).toEqual(fixture);
     }
-    expect(ServerWebSocketEnvelopeSchema.parse(staleRoomEnvelopeFixture)).toEqual(
-      staleRoomEnvelopeFixture,
+    expect(ServerWebSocketEnvelopeSchema.parse(playingRoomEnvelopeFixture)).toEqual(
+      playingRoomEnvelopeFixture,
     );
   });
 
@@ -116,22 +115,24 @@ describe("transport contracts", () => {
     });
   });
 
-  test("keeps websocket commands out of the planned envelope union", () => {
-    expect(
-      ClientWebSocketEnvelopeSchema.parse({
-        type: "room.subscribe",
-        gameId: "game_contract_fixture",
-        knownRevision: null,
-      }),
-    ).toEqual({
-      type: "room.subscribe",
-      gameId: "game_contract_fixture",
-      knownRevision: null,
-    });
+  test("uses one versioned server-to-client view envelope", () => {
+    expect(ServerWebSocketEnvelopeSchema.parse({
+      version: 1,
+      type: "room.view",
+      view: playingPlayerViewFixture,
+    })).toEqual(playingRoomEnvelopeFixture);
     expect(() =>
-      ClientWebSocketEnvelopeSchema.parse({
+      ServerWebSocketEnvelopeSchema.parse({
+        version: 1,
         type: "room.command",
         command: playingPlayerViewFixture.legalCommands[0],
+      }),
+    ).toThrow();
+    expect(() =>
+      ServerWebSocketEnvelopeSchema.parse({
+        version: 2,
+        type: "room.view",
+        view: playingPlayerViewFixture,
       }),
     ).toThrow();
   });

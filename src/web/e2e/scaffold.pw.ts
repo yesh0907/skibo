@@ -24,6 +24,40 @@ test("serves the React client alongside the legacy integration surface", async (
   ).toBeVisible();
 });
 
+test("keeps the legacy bearer surface live without polling", async ({ browser }) => {
+  const aliceContext = await browser.newContext();
+  const bobContext = await browser.newContext();
+  const alice = await aliceContext.newPage();
+  const bob = await bobContext.newPage();
+  let aliceSnapshots = 0;
+  alice.on("request", (request) => {
+    if (request.url().endsWith("/state")) aliceSnapshots += 1;
+  });
+
+  await alice.goto("/");
+  const createForm = alice.locator("#create-form");
+  await createForm.getByLabel("Your name").fill("Alice");
+  await createForm.getByRole("button", { name: "Create table" }).click();
+  await expect(alice.locator("#connection-state")).toHaveText("Connected");
+  await expect.poll(() => aliceSnapshots).toBe(1);
+  const gameId = await alice.evaluate(() => {
+    const saved = sessionStorage.getItem("skibo-session");
+    return saved === null ? null : JSON.parse(saved).gameId;
+  });
+  if (typeof gameId !== "string") throw new Error("Expected legacy game id");
+
+  await bob.goto("/");
+  const joinForm = bob.locator("#join-form");
+  await joinForm.getByLabel("Game code").fill(gameId);
+  await joinForm.getByLabel("Your name").fill("Bob");
+  await joinForm.getByRole("button", { name: "Join table" }).click();
+
+  await expect(alice.locator("#waiting-roster")).toContainText("Bob");
+  expect(aliceSnapshots).toBe(1);
+  await aliceContext.close();
+  await bobContext.close();
+});
+
 async function createTable(page: import("@playwright/test").Page, playerName: string) {
   await page.goto("/react/");
   const form = page.locator("form").filter({
@@ -57,19 +91,42 @@ function sourceLabel(command: TransportCommand): RegExp {
   return new RegExp(`${value} from hand position ${source.index + 1}`);
 }
 
-test("integrates cookie sessions, revision guards, safe views, and one legal move", async ({ browser }) => {
+test("delivers private live opponent updates without polling and recovers a reconnect snapshot", async ({ browser }) => {
   const aliceContext = await browser.newContext();
   const bobContext = await browser.newContext();
   const alice = await aliceContext.newPage();
   const bob = await bobContext.newPage();
+  let aliceSnapshotRequests = 0;
+  let bobSnapshotRequests = 0;
+  alice.on("request", (request) => {
+    if (request.url().endsWith("/state")) aliceSnapshotRequests += 1;
+  });
+  bob.on("request", (request) => {
+    if (request.url().endsWith("/state")) bobSnapshotRequests += 1;
+  });
   const gameId = await createTable(alice, "Alice");
+  await expect(alice.getByText("Live updates connected.")).toBeVisible();
+  await expect.poll(() => aliceSnapshotRequests).toBe(1);
   await joinTable(bob, gameId, "Bob");
+  await expect(bob.getByText("Live updates connected.")).toBeVisible();
+  await expect.poll(() => bobSnapshotRequests).toBe(1);
 
-  await alice.reload();
   await expect(alice.getByText("Bob")).toBeVisible();
+  expect(aliceSnapshotRequests).toBe(1);
+
+  await bobContext.setOffline(true);
+  await bob.evaluate(() => window.dispatchEvent(new Event("offline")));
+  await expect(bob.getByText(/Reconnecting live updates/)).toBeVisible();
   await alice.getByLabel("Game length").selectOption("5");
   await alice.getByRole("button", { name: "Start game" }).click();
   await expect(alice.getByText(/Your turn · revision 3/)).toBeVisible();
+  await bobContext.setOffline(false);
+  await bob.evaluate(() => window.dispatchEvent(new Event("online")));
+  await expect(bob.getByText("Live updates connected.")).toBeVisible({
+    timeout: 15_000,
+  });
+  await expect.poll(() => bobSnapshotRequests, { timeout: 15_000 }).toBe(2);
+  await expect(bob.getByText(/revision 3/)).toBeVisible();
 
   const aliceStateResponse = await alice.request.get(
     `/api/games/${gameId}/state`,
@@ -95,6 +152,8 @@ test("integrates cookie sessions, revision guards, safe views, and one legal mov
     name: `Play selected card on Discard pile ${command.discardPileIndex + 1}`,
   }).click();
   await expect(alice.getByText(/revision 4/)).toBeVisible();
+  await expect(bob.getByText(/Your turn · revision 4/)).toBeVisible();
+  expect(bobSnapshotRequests).toBe(2);
 
   const staleResponse = await alice.request.post(
     `/api/games/${gameId}/commands`,

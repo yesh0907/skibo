@@ -282,48 +282,15 @@ export type RevisionedLeaveRoomRequest = z.infer<
 >;
 export type LeaveRoomResponse = z.infer<typeof LeaveRoomResponseSchema>;
 
-/** Planned WebSocket client envelopes. Commands continue to use HTTP. */
-export const ClientWebSocketEnvelopeSchema = z.discriminatedUnion("type", [
-  z
-    .object({
-      type: z.literal("room.subscribe"),
-      gameId: GameIdSchema,
-      knownRevision: RoomRevisionSchema.nullable(),
-    })
-    .strict(),
-  z
-    .object({
-      type: z.literal("room.refresh"),
-      knownRevision: RoomRevisionSchema,
-    })
-    .strict(),
-]);
+/** View-only WebSocket delivery. Gameplay commands continue to use HTTP. */
+export const ServerWebSocketEnvelopeSchema = z
+  .object({
+    version: z.literal(1),
+    type: z.literal("room.view"),
+    view: PlayerViewSchema,
+  })
+  .strict();
 
-export const ServerWebSocketEnvelopeSchema = z.discriminatedUnion("type", [
-  z
-    .object({
-      type: z.literal("room.view"),
-      view: PlayerViewSchema,
-    })
-    .strict(),
-  z
-    .object({
-      type: z.literal("room.stale"),
-      requestedRevision: RoomRevisionSchema,
-      currentRevision: RoomRevisionSchema,
-    })
-    .strict(),
-  z
-    .object({
-      type: z.literal("room.error"),
-      error: ApiErrorSchema.shape.error,
-    })
-    .strict(),
-]);
-
-export type ClientWebSocketEnvelope = z.infer<
-  typeof ClientWebSocketEnvelopeSchema
->;
 export type ServerWebSocketEnvelope = z.infer<
   typeof ServerWebSocketEnvelopeSchema
 >;

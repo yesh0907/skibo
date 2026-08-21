@@ -3,7 +3,9 @@ const state = {
   playerToken: null,
   view: null,
   drag: null,
-  pollTimer: null,
+  liveSocket: null,
+  reconnectTimer: null,
+  reconnectAttempt: 0,
   busy: false,
 };
 
@@ -77,7 +79,7 @@ async function joinCreatedGame(gameId, playerName) {
   state.view = result.view;
   saveSession();
   render();
-  startPolling();
+  connectLiveUpdates();
 }
 
 async function startGame() {
@@ -86,7 +88,10 @@ async function startGame() {
     state.view = await api(`/api/games/${state.gameId}/start`, {
       method: "POST",
       headers: authorizedHeaders(true),
-      body: JSON.stringify({ stockPileSize }),
+      body: JSON.stringify({
+        expectedRevision: state.view.revision,
+        stockPileSize,
+      }),
     });
     render();
   });
@@ -106,12 +111,105 @@ async function refreshView() {
   }
 }
 
+async function refreshLiveSnapshot(socket) {
+  if (!state.gameId || !state.playerToken) return;
+  try {
+    const view = await api(`/api/games/${state.gameId}/state`, {
+      headers: authorizedHeaders(false),
+    });
+    if (state.liveSocket !== socket) return;
+    state.reconnectAttempt = 0;
+    if (!state.view || view.revision > state.view.revision) {
+      state.view = view;
+      render();
+    }
+  } catch (error) {
+    if (state.liveSocket === socket) {
+      elements.connectionState.textContent = "Connection issue";
+      showToast(error.message, true);
+    }
+  }
+}
+
+function connectLiveUpdates() {
+  if (!state.gameId || !state.playerToken || state.view?.status === "finished") {
+    return;
+  }
+  stopLiveUpdates(false);
+  const protocol = location.protocol === "https:" ? "wss:" : "ws:";
+  const socket = new WebSocket(
+    `${protocol}//${location.host}/api/games/${encodeURIComponent(state.gameId)}/ws`,
+  );
+  state.liveSocket = socket;
+  elements.connectionState.textContent = "Connecting";
+  socket.addEventListener("open", () => {
+    if (state.liveSocket !== socket) return;
+    elements.connectionState.textContent = "Connected";
+    void refreshLiveSnapshot(socket);
+  });
+  socket.addEventListener("message", (event) => {
+    if (state.liveSocket !== socket || typeof event.data !== "string") return;
+    try {
+      const envelope = JSON.parse(event.data);
+      if (
+        envelope?.version !== 1 ||
+        envelope?.type !== "room.view" ||
+        envelope.view?.gameId !== state.gameId ||
+        !Number.isInteger(envelope.view?.revision) ||
+        envelope.view.revision <= state.view.revision
+      ) {
+        return;
+      }
+      state.view = envelope.view;
+      render();
+    } catch {
+      showToast("The game server sent an invalid live update.", true);
+    }
+  });
+  socket.addEventListener("error", () => {
+    if (state.liveSocket === socket) {
+      elements.connectionState.textContent = "Connection issue";
+    }
+  });
+  socket.addEventListener("close", () => {
+    if (state.liveSocket !== socket) return;
+    state.liveSocket = null;
+    scheduleLiveReconnect();
+  });
+}
+
+function scheduleLiveReconnect() {
+  if (state.reconnectTimer || !state.gameId || state.view?.status === "finished") {
+    return;
+  }
+  const exponential = Math.min(10_000, 500 * 2 ** state.reconnectAttempt);
+  const delay = Math.min(10_000, Math.round(exponential * (0.75 + Math.random() * 0.5)));
+  state.reconnectAttempt += 1;
+  elements.connectionState.textContent = "Reconnecting";
+  state.reconnectTimer = window.setTimeout(() => {
+    state.reconnectTimer = null;
+    connectLiveUpdates();
+  }, delay);
+}
+
+function stopLiveUpdates(resetAttempt = true) {
+  if (state.reconnectTimer) window.clearTimeout(state.reconnectTimer);
+  state.reconnectTimer = null;
+  const socket = state.liveSocket;
+  state.liveSocket = null;
+  if (socket) socket.close(1000, "Session ended");
+  if (resetAttempt) state.reconnectAttempt = 0;
+}
+
 async function submitCommand(command) {
   await withBusy(async () => {
     const result = await api(`/api/games/${state.gameId}/commands`, {
       method: "POST",
       headers: authorizedHeaders(true),
-      body: JSON.stringify({ command }),
+      body: JSON.stringify({
+        expectedRevision: state.view.revision,
+        command,
+      }),
     });
     state.view = result.view;
     render();
@@ -173,7 +271,7 @@ function renderGame() {
         : `${view.currentPlayerName} cleared their stock pile.`
       : view.isYourTurn
         ? "Drag a highlighted card onto a glowing destination."
-        : `Waiting for ${view.currentPlayerName}. The table refreshes automatically.`;
+        : `Waiting for ${view.currentPlayerName}. Use Refresh game for a current snapshot.`;
 
   elements.deckCount.textContent = `${view.deckCount} in draw deck`;
   elements.completedCount.textContent = `${view.completedBuildPileCount} completed`;
@@ -450,12 +548,7 @@ function renderWinner() {
   elements.winnerMessage.textContent = viewerWon
     ? "You cleared your stock pile."
     : `${state.view.currentPlayerName} cleared their stock pile first.`;
-  window.clearInterval(state.pollTimer);
-}
-
-function startPolling() {
-  window.clearInterval(state.pollTimer);
-  state.pollTimer = window.setInterval(refreshView, 2_500);
+  stopLiveUpdates();
 }
 
 function authorizedHeaders(json) {
@@ -469,7 +562,9 @@ async function api(path, init = {}) {
   const response = await fetch(path, init);
   const body = await response.json().catch(() => null);
   if (!response.ok) {
-    throw new Error(body?.error || `Request failed with ${response.status}`);
+    throw new Error(
+      body?.error?.message ?? body?.error ?? `Request failed with ${response.status}`,
+    );
   }
   return body;
 }
@@ -493,8 +588,23 @@ async function copyGameCode() {
   showToast("Game code copied.");
 }
 
-function leaveGame() {
-  window.clearInterval(state.pollTimer);
+async function leaveGame() {
+  if (state.view?.status === "waiting") {
+    await withBusy(async () => {
+      await api(`/api/games/${state.gameId}/players/me`, {
+        method: "DELETE",
+        headers: authorizedHeaders(true),
+        body: JSON.stringify({ expectedRevision: state.view.revision }),
+      });
+      clearLocalSession();
+    });
+    return;
+  }
+  clearLocalSession();
+}
+
+function clearLocalSession() {
+  stopLiveUpdates();
   sessionStorage.removeItem("skibo-session");
   state.gameId = null;
   state.playerToken = null;
@@ -518,9 +628,9 @@ async function restoreSession() {
     state.gameId = session.gameId;
     state.playerToken = session.playerToken;
     await refreshView();
-    startPolling();
+    connectLiveUpdates();
   } catch {
-    leaveGame();
+    clearLocalSession();
   }
 }
 

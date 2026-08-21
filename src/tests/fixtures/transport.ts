@@ -94,8 +94,8 @@ export const stalePlayerViewFixture = {
   revision: 2,
 } satisfies PlayerView;
 
-export const staleRoomEnvelopeFixture = {
-  type: "room.stale",
-  requestedRevision: 2,
-  currentRevision: 3,
+export const playingRoomEnvelopeFixture = {
+  version: 1,
+  type: "room.view",
+  view: playingPlayerViewFixture,
 } satisfies ServerWebSocketEnvelope;

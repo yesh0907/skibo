@@ -67,6 +67,7 @@ function createEnv(overrides: Record<string, unknown> = {}): {
       view: waitingView,
     })),
     getView: mock(async () => waitingView),
+    fetch: mock(async () => new Response("upgraded")),
     start: mock(async () => playingView),
     playCommand: mock(async () => ({ view: waitingView, effects: [] })),
     leave: mock(async () => ({ revision: 2 })),
@@ -170,6 +171,69 @@ describe("Worker game API", () => {
 
     expect(response.status).toBe(200);
     expect(room.getView).toHaveBeenCalledWith("player-token-alice");
+  });
+
+  test("authenticates and proxies a WebSocket upgrade to the room", async () => {
+    const { env, room } = createEnv();
+    const request = new Request("https://skibo.example/api/games/game_test/ws", {
+      headers: {
+        cookie: "skibo_player=player-token-alice",
+        upgrade: "websocket",
+      },
+    });
+
+    const response = await worker.fetch(request, env);
+
+    expect(response.status).toBe(200);
+    expect(room.getView).toHaveBeenCalledWith("player-token-alice");
+    expect(room.fetch).toHaveBeenCalledTimes(1);
+    const forwarded = room.fetch!.mock.calls[0]?.[0] as Request;
+    expect(forwarded.headers.get("x-skibo-player-token")).toBe(
+      "player-token-alice",
+    );
+    expect(forwarded.headers.get("upgrade")).toBe("websocket");
+  });
+
+  test("requires a cookie, an upgrade header, and valid room ownership for WebSockets", async () => {
+    const bearerOnly = createEnv();
+    const bearerResponse = await worker.fetch(
+      new Request("http://local/api/games/game_test/ws", {
+        headers: {
+          authorization: "Bearer player-token-alice",
+          upgrade: "websocket",
+        },
+      }),
+      bearerOnly.env,
+    );
+    expect(bearerResponse.status).toBe(401);
+    expect(bearerOnly.room.fetch).not.toHaveBeenCalled();
+
+    const missingUpgrade = createEnv();
+    const missingUpgradeResponse = await worker.fetch(
+      new Request("http://local/api/games/game_test/ws", {
+        headers: { cookie: "skibo_player=player-token-alice" },
+      }),
+      missingUpgrade.env,
+    );
+    expect(missingUpgradeResponse.status).toBe(426);
+    expect(missingUpgrade.room.getView).not.toHaveBeenCalled();
+
+    const invalidOwner = createEnv({
+      getView: mock(async () => {
+        throw new RoomError("unauthorized", "Player authentication is invalid");
+      }),
+    });
+    const invalidOwnerResponse = await worker.fetch(
+      new Request("http://local/api/games/game_test/ws", {
+        headers: {
+          cookie: "skibo_player=player-token-alice",
+          upgrade: "websocket",
+        },
+      }),
+      invalidOwner.env,
+    );
+    expect(invalidOwnerResponse.status).toBe(401);
+    expect(invalidOwner.room.fetch).not.toHaveBeenCalled();
   });
 
   test("starts with a revisioned Zod-validated request", async () => {
