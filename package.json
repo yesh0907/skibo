@@ -5,14 +5,14 @@
   "scripts": {
     "build:web": "bun run ./src/web/build.ts",
     "dev": "wrangler dev",
-    "check": "wrangler types --check && tsc --noEmit",
+    "check": "wrangler types --check --env-file .env.types && tsc --noEmit",
     "cli": "bun run ./src/cli/index.ts",
     "play": "bun run ./src/cli/play.ts",
     "simulate": "bun run ./src/cli/simulate.ts",
     "test": "bun test",
     "test:e2e": "playwright test",
     "react:doctor": "CI=1 react-doctor . --scope changed --base HEAD --blocking warning --no-score --yes",
-    "types:cf": "wrangler types"
+    "types:cf": "wrangler types --env-file .env.types"
   },
   "dependencies": {
     "@dnd-kit/core": "6.3.1",
@@ -42,6 +42,6 @@
     "react-doctor": "0.9.12",
     "tailwindcss": "4.3.3",
     "typescript": "5.9.3",
-    "wrangler": "4.80.0"
+    "wrangler": "4.125.0"
   }
 }
