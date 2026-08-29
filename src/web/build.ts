@@ -1,21 +1,14 @@
-import { cp, mkdir, rm } from "node:fs/promises";
-
-import tailwind from "bun-plugin-tailwind";
+import { copyFile, rm } from "node:fs/promises";
 
 const projectRoot = new URL("../../", import.meta.url);
-const publicDirectory = new URL("public/", projectRoot);
 const outputDirectory = new URL("dist/", projectRoot);
-const reactOutputDirectory = new URL("react/", outputDirectory);
 
 await rm(outputDirectory, { force: true, recursive: true });
-await mkdir(outputDirectory, { recursive: true });
-await cp(publicDirectory, outputDirectory, { recursive: true });
 
 const result = await Bun.build({
   entrypoints: [new URL("index.html", import.meta.url).pathname],
-  outdir: reactOutputDirectory.pathname,
+  outdir: outputDirectory.pathname,
   minify: true,
-  plugins: [tailwind],
   sourcemap: "linked",
   target: "browser",
 });
@@ -26,3 +19,8 @@ if (!result.success) {
   }
   throw new Error("React web build failed");
 }
+
+await copyFile(
+  new URL("_redirects", import.meta.url),
+  new URL("_redirects", outputDirectory),
+);

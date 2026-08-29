@@ -10,7 +10,7 @@ export default defineConfig({
   },
   webServer: {
     command:
-      "bun run dev -- --port 8787 --persist-to .wrangler/playwright",
+      "bun run dev -- --port 8787 --persist-to .wrangler/playwright --env-file .env.types",
     url: "http://127.0.0.1:8787",
     reuseExistingServer: !process.env.CI,
   },

@@ -1,7 +1,7 @@
 import { useEffect, useReducer, useRef } from "react";
 import { toast, Toaster } from "sonner";
 
-import type { PlayerView, TransportCommand } from "../shared/transport";
+import { GameIdSchema, type PlayerView, type TransportCommand } from "../shared/transport";
 import { appReducer, initialAppState, type RequestKind } from "./app-state";
 import { CURRENT_GAME_KEY, gameApi, toApiError, type GameApi } from "./api-client";
 import { EntryScreen } from "./components/entry-screen";
@@ -23,12 +23,16 @@ interface StorageAdapter {
 export interface AppProps {
   api?: GameApi;
   storage?: StorageAdapter;
+  legacyStorage?: StorageAdapter;
   liveConnection?: LiveConnectionDependencies;
 }
+
+export const LEGACY_SESSION_KEY = "skibo-session";
 
 export function App({
   api = gameApi,
   storage = window.localStorage,
+  legacyStorage = window.sessionStorage,
   liveConnection,
 }: AppProps) {
   const [state, dispatch] = useReducer(appReducer, initialAppState);
@@ -115,7 +119,7 @@ export function App({
   useEffect(() => {
     if (restored.current) return;
     restored.current = true;
-    const savedGameId = storage.getItem(CURRENT_GAME_KEY);
+    const savedGameId = restoreStoredGameId(storage, legacyStorage);
     if (savedGameId !== null) void runViewRequest("restore", () => api.read(savedGameId), { quiet: true });
   }, []);
 
@@ -174,6 +178,7 @@ export function App({
     sessionGeneration.current += 1;
     operationInFlight.current = false;
     storage.removeItem(CURRENT_GAME_KEY);
+    legacyStorage.removeItem(LEGACY_SESSION_KEY);
     dispatch({ type: "sessionExited" });
   }
 
@@ -190,7 +195,7 @@ export function App({
   const busy = state.pending !== null;
 
   return (
-    <div className="flex min-h-dvh flex-col bg-emerald-950 text-emerald-50">
+    <div className="app-shell">
       <SiteHeader
         busy={busy}
         exitDisabled={state.view?.status === "waiting" && busy}
@@ -203,7 +208,7 @@ export function App({
       {state.view !== null ? (
         <p
           aria-live="polite"
-          className="border-b border-emerald-800 bg-emerald-950 px-4 py-1 text-center text-xs text-emerald-200"
+          className="sr-only"
           role="status"
         >
           {liveStatusLabel(liveUpdates.status)}
@@ -219,6 +224,7 @@ export function App({
       ) : (
         <GameTable
           busy={busy}
+          liveStatus={liveUpdates.status}
           onCommand={submitCommand}
           onExit={exit}
           onSelect={(command) => dispatch({ type: "commandSelected", command })}
@@ -226,10 +232,48 @@ export function App({
           view={state.view}
         />
       )}
-      <p aria-atomic="true" aria-live="polite" className="sr-only">{state.error?.error.message ?? ""}</p>
-      <Toaster closeButton position="top-center" richColors theme="dark" />
+      <p aria-atomic="true" aria-live="polite" className="sr-only">
+        {state.error?.error.message ?? ""}
+      </p>
+      <Toaster
+        position="bottom-right"
+        theme="light"
+        toastOptions={{
+          classNames: {
+            toast: "skibo-toast",
+            error: "skibo-toast-error",
+          },
+        }}
+      />
     </div>
   );
+}
+
+function restoreStoredGameId(
+  storage: StorageAdapter,
+  legacyStorage: StorageAdapter,
+): string | null {
+  const currentGameId = storage.getItem(CURRENT_GAME_KEY);
+  const legacySession = legacyStorage.getItem(LEGACY_SESSION_KEY);
+  if (legacySession === null) return currentGameId;
+
+  // Delete the legacy bearer token even when a current React session already exists.
+  legacyStorage.removeItem(LEGACY_SESSION_KEY);
+  if (currentGameId !== null) return currentGameId;
+
+  try {
+    const parsed = JSON.parse(legacySession) as unknown;
+    const gameId = GameIdSchema.safeParse(
+      typeof parsed === "object" && parsed !== null && "gameId" in parsed
+        ? parsed.gameId
+        : undefined,
+    );
+    if (!gameId.success) return null;
+    storage.setItem(CURRENT_GAME_KEY, gameId.data);
+    return gameId.data;
+  } catch {
+    return null;
+  }
 }
 
 function liveStatusLabel(status: LiveUpdateStatus): string {

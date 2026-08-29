@@ -11,7 +11,7 @@ GlobalRegistrator.register();
 
 const { act, cleanup, render, waitFor } = await import("@testing-library/react");
 const userEvent = (await import("@testing-library/user-event")).default;
-const { App } = await import("./app");
+const { App, LEGACY_SESSION_KEY } = await import("./app");
 
 class MemoryStorage {
   private values = new Map<string, string>();
@@ -102,6 +102,28 @@ describe("React game client", () => {
     expect(api.read).toHaveBeenCalledWith(waitingPlayerViewFixture.gameId);
   });
 
+  test("migrates only the public game id from an active legacy tab", async () => {
+    const storage = new MemoryStorage();
+    const legacyStorage = new MemoryStorage();
+    legacyStorage.setItem(
+      LEGACY_SESSION_KEY,
+      JSON.stringify({
+        gameId: waitingPlayerViewFixture.gameId,
+        playerToken: "legacy-secret-token",
+      }),
+    );
+    const api = makeApi();
+    const screen = render(
+      <App api={api} legacyStorage={legacyStorage} storage={storage} />,
+    );
+
+    await waitFor(() => expect(screen.getByText("Alice")).not.toBeNull());
+    expect(api.read).toHaveBeenCalledWith(waitingPlayerViewFixture.gameId);
+    expect(storage.getItem(CURRENT_GAME_KEY)).toBe(waitingPlayerViewFixture.gameId);
+    expect(legacyStorage.getItem(LEGACY_SESSION_KEY)).toBeNull();
+    expect(JSON.stringify(storage)).not.toContain("legacy-secret-token");
+  });
+
   test("starts with the current revision and prevents duplicate submission", async () => {
     let resolveStart!: (view: PlayerView) => void;
     const start = mock(() => new Promise<PlayerView>((resolve) => { resolveStart = resolve; }));
@@ -116,9 +138,49 @@ describe("React game client", () => {
     await user.click(startButton);
     await user.click(startButton);
     expect(start).toHaveBeenCalledTimes(1);
-    expect(start).toHaveBeenCalledWith(waitingPlayerViewFixture.gameId, { expectedRevision: 2, stockPileSize: 30 });
+    expect(start).toHaveBeenCalledWith(waitingPlayerViewFixture.gameId, { expectedRevision: 2, stockPileSize: 5 });
     resolveStart(playingPlayerViewFixture);
     await waitFor(() => expect(screen.getByRole("heading", { level: 1, name: "Alice" })).not.toBeNull());
+  });
+
+  test("retains the lobby start and game-length safeguards", async () => {
+    const onePlayerView = {
+      ...waitingPlayerViewFixture,
+      revision: 1,
+      players: [waitingPlayerViewFixture.players[0]!],
+    } satisfies PlayerView;
+    const sixPlayerView = {
+      ...waitingPlayerViewFixture,
+      revision: 6,
+      players: Array.from({ length: 6 }, (_, index) => ({
+        ...waitingPlayerViewFixture.players[0]!,
+        name: `Player ${index + 1}`,
+      })),
+    } satisfies PlayerView;
+    const read = mock()
+      .mockResolvedValueOnce(onePlayerView)
+      .mockResolvedValueOnce(sixPlayerView);
+    const api = makeApi({ read });
+    const storage = new MemoryStorage();
+    storage.setItem(CURRENT_GAME_KEY, waitingPlayerViewFixture.gameId);
+    const user = userEvent.setup();
+    const screen = render(<App api={api} storage={storage} />);
+
+    const startButton = await screen.findByRole("button", { name: "Start game" });
+    expect(startButton.hasAttribute("disabled")).toBeTrue();
+
+    await user.selectOptions(screen.getByLabelText("Game length"), "30");
+    await user.click(screen.getByRole("button", { name: "Refresh game" }));
+    const gameLength = screen.getByRole("combobox", {
+      name: "Game length",
+    });
+    if (!(gameLength instanceof HTMLSelectElement)) {
+      throw new Error("Game length control must be a select element");
+    }
+    await waitFor(() => expect(gameLength.value).toBe("20"));
+    expect([...gameLength.options].find((option) => option.value === "25")?.disabled).toBeTrue();
+    expect([...gameLength.options].find((option) => option.value === "30")?.disabled).toBeTrue();
+    expect(startButton.hasAttribute("disabled")).toBeFalse();
   });
 
   test("leaves the waiting room on the server before clearing the local session", async () => {
@@ -170,11 +232,11 @@ describe("React game client", () => {
 
     source.focus();
     await user.keyboard("[Space]");
-    await waitFor(() => expect(screen.getByRole("group", { name: "Build pile 1" }).className).toContain("border-lime-300"));
-    expect(screen.getByRole("group", { name: "Build pile 2" }).className).not.toContain("border-lime-300");
+    await waitFor(() => expect(screen.getByRole("group", { name: "Build pile 1" }).className).toContain("drop-allowed"));
+    expect(screen.getByRole("group", { name: "Build pile 2" }).className).not.toContain("drop-allowed");
     await user.keyboard("{Escape}");
 
-    await waitFor(() => expect(screen.getByRole("group", { name: "Build pile 1" }).className).not.toContain("border-lime-300"));
+    await waitFor(() => expect(screen.getByRole("group", { name: "Build pile 1" }).className).not.toContain("drop-allowed"));
     expect(document.activeElement).toBe(source);
   });
 
@@ -208,7 +270,7 @@ describe("React game client", () => {
     await user.click(await screen.findByRole("button", { name: "card 1 from hand position 1" }));
     await user.click(screen.getByRole("button", { name: "Play selected card on Build pile 1" }));
 
-    await waitFor(() => expect(screen.getByText(/revision 4/)).not.toBeNull());
+    await waitFor(() => expect(document.querySelector(".game-view")?.getAttribute("data-revision")).toBe("4"));
     expect(read).toHaveBeenCalledTimes(2);
   });
 
@@ -223,7 +285,7 @@ describe("React game client", () => {
 
     await user.click(refresh);
     await waitFor(() => expect(read).toHaveBeenCalledTimes(2));
-    expect(screen.getByText(/revision 3/)).not.toBeNull();
+    expect(document.querySelector(".game-view")?.getAttribute("data-revision")).toBe("3");
     expect(refresh.hasAttribute("disabled")).toBeFalse();
   });
 
@@ -275,7 +337,7 @@ describe("React game client", () => {
         }),
       }),
     );
-    await waitFor(() => expect(screen.getByText(/revision 4/)).not.toBeNull());
+    await waitFor(() => expect(document.querySelector(".game-view")?.getAttribute("data-revision")).toBe("4"));
 
     act(() => sockets[0]!.onclose?.());
     expect(screen.getByText(/Reconnecting live updates/)).not.toBeNull();
@@ -285,7 +347,7 @@ describe("React game client", () => {
       sockets[1]!.onopen?.();
       await Promise.resolve();
     });
-    await waitFor(() => expect(screen.getByText(/revision 5/)).not.toBeNull());
+    await waitFor(() => expect(document.querySelector(".game-view")?.getAttribute("data-revision")).toBe("5"));
     expect(read).toHaveBeenCalledTimes(3);
   });
 
@@ -363,7 +425,7 @@ describe("React game client", () => {
     expect(await screen.findByRole("dialog")).not.toBeNull();
     expect(screen.getByRole("heading", { name: "You won!" })).not.toBeNull();
     await waitFor(() => expect(document.activeElement?.id).toBe("completion-title"));
-    await user.click(screen.getByRole("button", { name: "Return home" }));
+    await user.click(screen.getByRole("button", { name: "Leave table" }));
     expect(storage.getItem(CURRENT_GAME_KEY)).toBeNull();
     expect(screen.getByRole("heading", { name: "Pull up a seat." })).not.toBeNull();
   });

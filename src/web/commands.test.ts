@@ -23,8 +23,8 @@ describe("authoritative command mapping", () => {
     expect(destinationKey(command)).toBe("build-0");
   });
 
-  test("keeps mouse and touch activation behind scroll-safe thresholds", () => {
-    expect(MOUSE_ACTIVATION_CONSTRAINT).toEqual({ distance: 8 });
-    expect(TOUCH_ACTIVATION_CONSTRAINT).toEqual({ delay: 180, tolerance: 8 });
+  test("preserves the legacy movement threshold for mouse and touch dragging", () => {
+    expect(MOUSE_ACTIVATION_CONSTRAINT).toEqual({ distance: 6 });
+    expect(TOUCH_ACTIVATION_CONSTRAINT).toEqual({ distance: 6 });
   });
 });

@@ -11,7 +11,7 @@ export type RoomRevision = z.infer<typeof RoomRevisionSchema>;
 export const RoomStatusSchema = z.enum(["waiting", "playing", "finished"]);
 export type TransportRoomStatus = z.infer<typeof RoomStatusSchema>;
 
-const GameIdSchema = z.string().min(1);
+export const GameIdSchema = z.string().min(1);
 const PlayerNameSchema = z.string().trim().min(1).max(32);
 const CardValueSchema = z.number().int().min(0).max(12);
 const PileIndexSchema = z.number().int().nonnegative();

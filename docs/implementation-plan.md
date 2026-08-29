@@ -2,8 +2,8 @@
 
 ## Status
 
-- Current phase: Phase 4 native Hibernation WebSocket transport complete
-- Current focus: begin Phase 5 hardening around reconnect edge cases and real friend playtesting
+- Current phase: Phase 5 browser hardening and playtesting
+- Current focus: exercise the parity React client with real players and harden failures found in playtesting
 - Progress:
   - established project goals and collaboration model
   - chose a CLI-first architecture
@@ -88,6 +88,11 @@
   - retained the last valid view through transient live-update errors and exposed connection state through an accessible live status region
   - removed background polling from both browser surfaces while retaining manual HTTP refresh and temporary HTTP bearer compatibility
   - proved live private opponent updates and reconnect snapshot recovery with two isolated browser contexts through local Wrangler Chromium acceptance
+  - promoted the React client from the temporary `/react/` migration path to the root product surface and redirected the old scaffold path to `/`
+  - removed the duplicate legacy browser implementation while preserving its light visual system, responsive table layout, lobby controls, mouse and touch drag affordances, keyboard selection flow, and winner treatment
+  - migrated active legacy tabs to the cookie-authenticated React client using only the validated public game id and deleted the obsolete browser-readable bearer token
+  - restored lobby feasibility guards so games cannot start with one player and stock-size choices remain valid for the joined roster
+  - extended Wrangler-backed Chromium acceptance to exercise mouse and touch drag sensors plus the narrow responsive breakpoint against the root React client instead of relying only on click selection and CSS text
 
 ## Working Agreement
 
@@ -451,11 +456,10 @@ Goal: make the system resilient enough for real playtesting.
 
 Build:
 
-- reconnect after disconnect
-- persisted local player identity
-- invalid action handling
-- out-of-turn protection
-- tests for reconnect and state recovery
+- longer friend-play sessions and deploy-induced disconnect testing in a non-production environment
+- waiting-room seat expiry or explicit post-start forfeiture, if playtesting proves either is needed
+- reconnect-frequency and repeated-socket-failure observability without private player state
+- removal of temporary bearer compatibility when diagnostic clients no longer require it
 
 ## Collaboration Model
 
@@ -484,7 +488,7 @@ For this project, a good mental shortcut is:
 
 ## Immediate Next Step
 
-Phase 4 is complete. The next concrete slice is focused Phase 5 hardening:
+The root React parity slice is complete. The next concrete work remains focused Phase 5 hardening:
 
 - exercise longer friend-play sessions and deploy-induced WebSocket disconnects in a non-production environment
 - decide whether waiting-room seat expiry or explicit post-start forfeiture belongs in the product

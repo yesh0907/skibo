@@ -5,7 +5,7 @@
   "compatibility_date": "2026-04-08",
   "build": {
     "command": "bun run build:web",
-    "watch_dir": ["public", "src/shared", "src/web"]
+    "watch_dir": ["src/shared", "src/web"]
   },
   "assets": {
     "directory": "./dist",

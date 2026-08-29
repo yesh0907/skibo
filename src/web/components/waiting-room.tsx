@@ -1,9 +1,18 @@
+import { useEffect, useState, type FormEvent } from "react";
+
 import type { PlayerView } from "../../shared/transport";
 
-import { Button } from "./ui/button";
-import { Panel } from "./ui/panel";
-
 const STOCK_SIZES = [5, 10, 15, 20, 25, 30] as const;
+const DECK_SIZE = 162;
+
+const STOCK_SIZE_LABELS: Record<(typeof STOCK_SIZES)[number], string> = {
+  5: "Quick test · 5 stock cards",
+  10: "Short · 10 stock cards",
+  15: "Medium · 15 stock cards",
+  20: "Long · 20 stock cards",
+  25: "Extended · 25 stock cards",
+  30: "Standard · 30 stock cards",
+};
 
 interface WaitingRoomProps {
   view: Extract<PlayerView, { status: "waiting" }>;
@@ -11,35 +20,72 @@ interface WaitingRoomProps {
   onStart: (size: number) => void;
 }
 
+function isFeasible(playerCount: number, stockPileSize: number): boolean {
+  return playerCount * (stockPileSize + 5) <= DECK_SIZE;
+}
+
 export function WaitingRoom({ view, busy, onStart }: WaitingRoomProps) {
+  const [stockPileSize, setStockPileSize] = useState<number>(5);
+  const largestFeasibleSize = STOCK_SIZES.findLast((size) =>
+    isFeasible(view.players.length, size),
+  ) ?? 5;
+
+  useEffect(() => {
+    if (isFeasible(view.players.length, stockPileSize)) return;
+    setStockPileSize(largestFeasibleSize);
+  }, [largestFeasibleSize, stockPileSize, view.players.length]);
+
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    onStart(stockPileSize);
+  }
+
   return (
-    <main className="lobby-layout mx-auto grid w-full max-w-4xl flex-1 content-center gap-6 px-4 py-10 sm:px-8">
-      <section>
-        <p className="eyebrow">Waiting room · revision {view.revision}</p>
-        <h1 className="mt-2 font-serif text-5xl text-white sm:text-6xl">The table is open.</h1>
-        <p className="mt-3 text-emerald-100/70">Share game code <code className="rounded bg-black/20 px-2 py-1 text-emerald-50">{view.gameId}</code>. The first player takes the first turn.</p>
-      </section>
-      <Panel className="overflow-hidden">
-        <ul aria-label="Players waiting" className="divide-y divide-white/10">
-          {view.players.map((player, index) => (
-            <li className="flex min-h-16 items-center justify-between px-5" key={player.name}>
-              <strong className="text-white">{player.name}{player.name === view.viewerName && <span className="ml-2 text-xs font-medium text-lime-300">You</span>}</strong>
-              <span className="text-sm text-emerald-100/55">{index === 0 ? "First turn" : `Seat ${index + 1}`}</span>
-            </li>
-          ))}
-        </ul>
-        <form className="grid gap-4 border-t border-white/10 p-5 sm:grid-cols-[1fr_auto] sm:items-end" onSubmit={(event) => {
-          event.preventDefault();
-          onStart(Number(new FormData(event.currentTarget).get("stockPileSize")));
-        }}>
-          <label className="field-label">Game length
-            <select defaultValue={30} name="stockPileSize">
-              {STOCK_SIZES.map((size) => <option key={size} value={size}>{size === 30 ? "Standard" : size === 5 ? "Quick test" : `${size} cards`} · {size} stock cards</option>)}
-            </select>
-          </label>
-          <Button disabled={busy} type="submit">{busy ? "Starting…" : "Start game"}</Button>
-        </form>
-      </Panel>
+    <main className="waiting-view">
+      <div className="waiting-copy">
+        <p className="eyebrow">Waiting room</p>
+        <h1>The table is open.</h1>
+        <p>
+          Share the game code. The first joined player takes the first turn.
+        </p>
+      </div>
+
+      <div aria-label="Players waiting" className="waiting-roster">
+        {view.players.map((player, index) => (
+          <div className="roster-player" key={player.name}>
+            <strong>{player.name}</strong>
+            <span>{index === 0 ? "First turn" : `Seat ${index + 1}`}</span>
+          </div>
+        ))}
+      </div>
+
+      <form className="waiting-controls" onSubmit={submit}>
+        <label>
+          Game length
+          <select
+            name="stockPileSize"
+            onChange={(event) => setStockPileSize(Number(event.target.value))}
+            value={stockPileSize}
+          >
+            {STOCK_SIZES.map((size) => (
+              <option
+                disabled={!isFeasible(view.players.length, size)}
+                key={size}
+                value={size}
+              >
+                {STOCK_SIZE_LABELS[size]}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button
+          className="primary-button"
+          disabled={busy || view.players.length < 2}
+          type="submit"
+        >
+          {busy ? "Starting…" : "Start game"}
+        </button>
+      </form>
     </main>
   );
 }

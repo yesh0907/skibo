@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Replace the Client, Preserve the Contract</title>
+    <link rel="stylesheet" href="../assets/lesson.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <div class="kicker">Skip-Bo UI Migration · Lesson 0013</div>
+        <h1>Replace the client, preserve the contract</h1>
+        <p class="lead">
+          A framework migration succeeds when users gain new internals without
+          having to relearn the product.
+        </p>
+        <div class="meta">Completed slice: React root promotion with UI parity</div>
+      </header>
+
+      <h2>Parity is a behavioral contract</h2>
+      <div class="flow">
+        <div><strong>Structure</strong>Keep the familiar lobby, table regions, cards, and overlays.</div>
+        <div><strong>Affordance</strong>Preserve pointer thresholds, keyboard selection, and focus recovery.</div>
+        <div><strong>Authority</strong>Let React consume the same server-provided legal commands and private views.</div>
+      </div>
+      <p>
+        Copying colors alone would preserve a screenshot while breaking the game.
+        This migration treats markup classes, responsive breakpoints, enabled and
+        disabled controls, focus behavior, and real drag gestures as one product
+        contract. React changes ownership of rendering and state; it does not change
+        what a player must understand.
+      </p>
+
+      <h2>One production surface prevents drift</h2>
+      <pre><code>src/web/index.html  → Bun build → dist/index.html
+src/web/_redirects → copied    → dist/_redirects
+
+/react   /   308
+/react/  /   308</code></pre>
+      <p>
+        The root URL now serves the React bundle, and the temporary migration path
+        redirects to it. Removing the old static client matters: two independently
+        evolving UIs would make every interaction fix, accessibility improvement,
+        and transport change a synchronization problem.
+      </p>
+
+      <div class="callout">
+        <strong>The highest-value acceptance test performs the gesture.</strong>
+        A click-based shortcut can prove command wiring while missing broken drag
+        sensors, viewport clipping, or overlays. The browser test now moves the
+        pointer from a legal card to a legal pile and observes the opponent update.
+      </div>
+
+      <h2>Retrieve the invariants</h2>
+      <details>
+        <summary>Why keep the old CSS class vocabulary?</summary>
+        <p>
+          It lets the proven visual and responsive system remain stable while React
+          replaces implementation ownership. The migration can then distinguish a
+          deliberate redesign from an accidental regression.
+        </p>
+      </details>
+      <details>
+        <summary>Why redirect <code>/react/</code> instead of serving both paths?</summary>
+        <p>
+          A single canonical URL avoids duplicate product surfaces and stale links.
+          A permanent redirect preserves migration compatibility without preserving
+          a second implementation.
+        </p>
+      </details>
+
+      <h2>Primary sources</h2>
+      <ul>
+        <li><a href="https://developers.cloudflare.com/workers/static-assets/redirects/">Cloudflare: Redirects for static assets</a></li>
+        <li><a href="https://www.w3.org/WAI/WCAG22/Understanding/keyboard.html">W3C: Understanding keyboard accessibility</a></li>
+      </ul>
+
+      <footer>
+        Previous: <a href="./0012-hibernating-connections-private-projections.html">Hibernating connections, private projections</a>.
+        Compare the old interaction contract with the React acceptance test, then
+        ask the agent about any parity decision that is unclear.
+      </footer>
+    </main>
+  </body>
+</html>
