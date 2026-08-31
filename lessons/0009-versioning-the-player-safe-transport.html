@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Versioning the Player-Safe Transport</title>
+    <link rel="stylesheet" href="../assets/lesson.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <div class="kicker">Skip-Bo Transport · Lesson 0009</div>
+        <h1>Versioning the player-safe transport</h1>
+        <p class="lead">
+          A UI refactor is safest when runtime data gets a contract before it
+          gets a new renderer.
+        </p>
+        <div class="meta">Completed slice: shared React contract checkpoint</div>
+      </header>
+
+      <h2>One schema owns runtime and compile-time meaning</h2>
+      <p>
+        <code>PlayerViewSchema</code> validates untrusted JSON. Its inferred
+        <code>PlayerView</code> type then drives the reducer and fixtures. A
+        field cannot quietly exist in TypeScript while being absent from the
+        runtime boundary.
+      </p>
+
+      <pre><code>unknown JSON
+  → PlayerViewSchema.parse(...)
+  → PlayerView
+  → reducer action
+  → React render</code></pre>
+
+      <h2>Status is a discriminant, not decoration</h2>
+      <p>
+        The waiting, playing, and finished variants encode different legal
+        states. A waiting view cannot name a current player. A finished view
+        must name a winner and cannot contain legal commands. Parsing rejects
+        contradictory combinations before the UI has to guess.
+      </p>
+
+      <h2>Revision makes a snapshot comparable</h2>
+      <p>
+        Every future view carries a nonnegative integer revision. The durable
+        room will increment it once per successful mutation. Clients can then
+        distinguish new state from duplicate or out-of-order delivery without
+        comparing every card and pile.
+      </p>
+
+      <div class="callout">
+        <strong>Design rule:</strong> HTTP remains the command path; WebSockets
+        will distribute complete player-safe snapshots and recovery signals.
+      </div>
+
+      <h2>Scaffolding can coexist with the product</h2>
+      <p>
+        The custom build copies the playable static client into
+        <code>dist/</code>, then emits the React checkpoint under
+        <code>dist/react/</code>. Wrangler serves that one generated asset tree.
+        This creates a migration seam without replacing working gameplay with
+        an unfinished shell.
+      </p>
+
+      <h2>Retrieve before revealing</h2>
+      <details>
+        <summary>Why not trust the TypeScript type after fetching JSON?</summary>
+        <p>
+          Types disappear at runtime. Only schema parsing can prove that an
+          external response matches the client assumption.
+        </p>
+      </details>
+      <details>
+        <summary>Why send full snapshots instead of WebSocket commands?</summary>
+        <p>
+          Keeping commands on HTTP preserves one mutation path. Complete views
+          also let clients recover from a revision gap without replay logic.
+        </p>
+      </details>
+
+      <h2>Primary sources</h2>
+      <ul>
+        <li><a href="https://zod.dev/api">Zod: defining schemas</a></li>
+        <li>
+          <a href="https://react.dev/reference/react/useReducer"
+            >React: useReducer</a
+          >
+        </li>
+        <li>
+          <a href="https://bun.sh/docs/bundler/html-static"
+            >Bun: HTML and static sites</a
+          >
+        </li>
+      </ul>
+
+      <footer>
+        Previous:
+        <a href="./0008-mapping-authoritative-commands-to-drag-and-drop.html"
+          >Mapping authoritative commands to drag and drop</a
+        >. Inspect one fixture, identify which status invariants it proves, and
+        ask the agent about any contract or migration boundary that is unclear.
+      </footer>
+    </main>
+  </body>
+</html>

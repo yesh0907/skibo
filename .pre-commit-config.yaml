@@ -1,0 +1,9 @@
+repos:
+  - repo: local
+    hooks:
+      - id: react-doctor
+        name: React Doctor (warnings and errors)
+        entry: env CI=1 bun run react-doctor . --staged --blocking warning --no-score --yes
+        language: system
+        pass_filenames: false
+        files: ^src/web/.*\.(js|jsx|ts|tsx)$

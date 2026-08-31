@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Coupling Room Revisions to Durable Mutations</title>
+    <link rel="stylesheet" href="../assets/lesson.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <div class="kicker">Skip-Bo Backend · Lesson 0010</div>
+        <h1>Couple the revision to the durable mutation</h1>
+        <p class="lead">
+          A revision is trustworthy only when it describes the snapshot that
+          was actually persisted.
+        </p>
+        <div class="meta">Completed slice: revisioned HTTP backend foundation</div>
+      </header>
+
+      <h2>One accepted command, one durable snapshot</h2>
+      <p>
+        The room builds its next state with <code>revision + 1</code>, writes
+        that whole state once, and only then updates its in-memory cache. Join,
+        start, leave, and legal game commands all follow the same rule.
+      </p>
+
+      <pre><code>authenticate → compare expected revision → validate transition
+  → persist { ...nextState, revision: current + 1 }
+  → cache persisted state → project PlayerView</code></pre>
+
+      <h2>Failures leave no phantom history</h2>
+      <p>
+        Reads, stale requests, illegal commands, and failed storage writes do
+        not advance the revision. This means revision <code>n</code> always
+        names a real durable snapshot—not merely an attempted operation.
+      </p>
+
+      <div class="callout">
+        <strong>Correctness invariant:</strong> if persistence fails, both the
+        durable state and the in-memory cache remain at the prior revision.
+      </div>
+
+      <h2>The boundary turns concurrency into a recoverable result</h2>
+      <p>
+        Start and command requests carry <code>expectedRevision</code>. A
+        mismatch returns <code>stale_revision</code> with the current revision,
+        so the client can refresh rather than accidentally applying an intent
+        to a room it did not observe.
+      </p>
+
+      <details>
+        <summary>Why does join omit expectedRevision?</summary>
+        <p>
+          A joining player has no authenticated player view yet. The Durable
+          Object still serializes accepted joins and assigns each one the next
+          durable revision.
+        </p>
+      </details>
+
+      <h2>Primary sources</h2>
+      <ul>
+        <li>
+          <a href="https://developers.cloudflare.com/durable-objects/best-practices/rules-of-durable-objects/"
+            >Cloudflare: Rules of Durable Objects</a
+          >
+        </li>
+        <li>
+          <a href="https://developers.cloudflare.com/workers/runtime-apis/rpc/error-handling/"
+            >Cloudflare: Workers RPC error handling</a
+          >
+        </li>
+      </ul>
+
+      <footer>
+        Previous:
+        <a href="./0009-versioning-the-player-safe-transport.html"
+          >Versioning the player-safe transport</a
+        >. Trace one rejected stale command and ask the agent about any
+        persistence or recovery step that is unclear.
+      </footer>
+    </main>
+  </body>
+</html>

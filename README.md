@@ -57,8 +57,36 @@ in one browser tab, copy its game code, then join from a second tab. Each tab
 keeps its own player token for the duration of that tab, including refreshes.
 Choose the 5-card stock option for a quick test game.
 
-On your turn, select a highlighted hand, stock, or discard card. The action tray
-shows only the exact commands accepted by the authoritative game engine.
+On your turn, drag a highlighted hand, stock, or discard card. Legal build and
+discard destinations glow while dragging. Those destinations come directly
+from the exact commands accepted by the authoritative game engine.
+
+The in-progress React client scaffold is available at `/react/`. The production
+build copies the playable static client into `dist/` and bundles the React route
+with Bun's HTML bundler and Tailwind plugin:
+
+```bash
+bun run build:web
+```
+
+The generated `dist/` directory is intentionally ignored.
+
+## Frontend Checks
+
+Run the React unit checks and list the Playwright suite with:
+
+```bash
+bun test src/web
+bunx playwright test --list
+```
+
+React Doctor blocks warnings and errors through the tracked Prek hook. Install
+the hook manager once per checkout, then run all configured hooks when needed:
+
+```bash
+uvx prek install
+uvx prek run --all-files
+```
 
 ## Test The Engine
 

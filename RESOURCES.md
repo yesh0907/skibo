@@ -16,8 +16,22 @@
   Language reference for the production random-number source injected into deck shuffling.
 - [Cloudflare: Rules of Durable Objects](https://developers.cloudflare.com/durable-objects/best-practices/rules-of-durable-objects/)
   Primary platform guidance for per-game coordination, deterministic routing, and persistent state.
+- [Cloudflare: Use WebSockets with Durable Objects](https://developers.cloudflare.com/durable-objects/best-practices/websockets/)
+  Primary platform guidance for Hibernation WebSocket acceptance, lifecycle handlers, attachments, and connection recovery.
+- [Cloudflare: Durable Object State API](https://developers.cloudflare.com/durable-objects/api/state/)
+  API reference for accepting hibernatable sockets and recovering the attached connection set.
 - [Cloudflare: Workers Static Assets](https://developers.cloudflare.com/workers/static-assets/)
   Primary platform guidance for serving the browser client and Worker API from one deployment.
+- [MDN: Pointer events](https://developer.mozilla.org/en-US/docs/Web/API/Pointer_events)
+  Primary browser reference for unified mouse, touch, and pen interactions with pointer capture.
+- [Zod: Defining schemas](https://zod.dev/api)
+  Primary library reference for deriving TypeScript transport types from runtime validators.
+- [React: `useReducer`](https://react.dev/reference/react/useReducer)
+  Primary framework reference for reducer-managed client state and action dispatch.
+- [Bun: HTML and static sites](https://bun.sh/docs/bundler/html-static)
+  Primary bundler reference for HTML entry points and the Tailwind plugin.
+- [MDN: Using HTTP cookies](https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/Cookies)
+  Browser protocol reference for HttpOnly, Secure, SameSite, lifetime, and cookie path behavior.
 
 ## Wisdom (Communities)
 

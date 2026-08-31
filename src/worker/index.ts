@@ -1,14 +1,35 @@
-import type { Command } from "../shared/command";
-import type { PlayCardSource } from "../shared/types";
-import type {
-  JoinRoomRequest,
-  PlayCommandRequest,
-  StartGameRequest,
-} from "../shared/room-state";
-import { GameRoomDO, type Env } from "./game-room-do";
+import { z } from "zod";
+
+import {
+  ApiErrorSchema,
+  CommandSchema,
+  CreateGameRequestSchema,
+  JoinRoomRequestSchema,
+  LeaveRoomRequestSchema,
+  PlayerViewSchema,
+  PlayCommandRequestSchema,
+  StartGameRequestSchema,
+  type ApiError,
+} from "../shared/transport";
+import {
+  GameRoomDO,
+  INTERNAL_PLAYER_TOKEN_HEADER,
+  type Env,
+} from "./game-room-do";
+import { parseRoomError } from "./room-error";
 
 export { GameRoomDO };
 
+const PLAYER_COOKIE_NAME = "skibo_player";
+type ApiErrorCode = ApiError["error"]["code"];
+const PLAYER_COOKIE_MAX_AGE_SECONDS = 365 * 24 * 60 * 60;
+const MAX_JSON_BODY_BYTES = 16 * 1024;
+const GameIdSchema = z
+  .string()
+  .min(1)
+  .max(80)
+  .regex(/^[A-Za-z0-9_-]+$/);
+const PlayerTokenSchema = z.string().min(16).max(256);
 function json(data: unknown, init?: ResponseInit): Response {
   return Response.json(data, init);
 }
@@ -19,119 +40,180 @@ function createGameId(): string {
 
 function getGameIdFromPath(pathname: string): string | null {
   const match = pathname.match(/^\/api\/games\/([^/]+)(?:\/.*)?$/);
-  return match?.[1] ?? null;
+  const result = GameIdSchema.safeParse(match?.[1]);
+  return result.success ? result.data : null;
 }
 
-async function readJson(request: Request): Promise<unknown> {
-  if (!request.headers.get("content-type")?.includes("application/json")) {
-    throw new HttpError(400, "Expected JSON body");
+async function parseJson<T>(
+  request: Request,
+  schema: z.ZodType<T>,
+  allowEmpty = false,
+): Promise<T> {
+  if (request.body === null && allowEmpty) {
+    return schema.parse({});
+  }
+  const hasJsonContentType = request.headers
+    .get("content-type")
+    ?.includes("application/json");
+  if (!allowEmpty && !hasJsonContentType) {
+    throw new HttpError(400, "invalid_request", "Expected a JSON body");
   }
 
+  let body: unknown;
   try {
-    return await request.json();
-  } catch {
-    throw new HttpError(400, "Expected JSON body");
+    const jsonText = await readBoundedBody(request);
+    if (allowEmpty && jsonText.length === 0) {
+      return schema.parse({});
+    }
+    if (!hasJsonContentType) {
+      throw new HttpError(400, "invalid_request", "Expected a JSON body");
+    }
+    body = JSON.parse(jsonText);
+  } catch (error) {
+    if (error instanceof HttpError) {
+      throw error;
+    }
+    throw new HttpError(400, "invalid_request", "Expected a JSON body");
   }
+
+  const result = schema.safeParse(body);
+  if (!result.success) {
+    throw new HttpError(400, "invalid_request", "Request body is invalid");
+  }
+  return result.data;
 }
 
-function requirePlayerName(value: unknown): string {
-  if (typeof value !== "string" || value.trim().length === 0) {
-    throw new HttpError(400, "playerName is required");
+async function readBoundedBody(request: Request): Promise<string> {
+  const contentLength = request.headers.get("content-length");
+  if (
+    contentLength !== null &&
+    Number.isFinite(Number(contentLength)) &&
+    Number(contentLength) > MAX_JSON_BODY_BYTES
+  ) {
+    throw new HttpError(413, "invalid_request", "Request body is too large");
   }
-  return value.trim();
+
+  const reader = request.body?.getReader();
+  if (reader === undefined) {
+    throw new SyntaxError("Missing JSON body");
+  }
+  const chunks: Uint8Array[] = [];
+  let byteLength = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+    byteLength += value.byteLength;
+    if (byteLength > MAX_JSON_BODY_BYTES) {
+      await reader.cancel();
+      throw new HttpError(413, "invalid_request", "Request body is too large");
+    }
+    chunks.push(value);
+  }
+
+  const bytes = new Uint8Array(byteLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(bytes);
 }
 
 function requirePlayerToken(request: Request): string {
+  const cookieToken = readCookie(request, PLAYER_COOKIE_NAME);
+  if (cookieToken !== null) {
+    const result = PlayerTokenSchema.safeParse(cookieToken);
+    if (result.success) {
+      return result.data;
+    }
+  }
+
   const authorization = request.headers.get("authorization");
   const prefix = "Bearer ";
-  if (!authorization?.startsWith(prefix)) {
-    throw new HttpError(401, "Bearer player token is required");
+  const bearerToken = authorization?.startsWith(prefix)
+    ? authorization.slice(prefix.length)
+    : undefined;
+  const result = PlayerTokenSchema.safeParse(bearerToken);
+  if (!result.success) {
+    throw new HttpError(
+      401,
+      "unauthorized",
+      "Player authentication is required",
+    );
   }
-  const token = authorization.slice(prefix.length);
-  if (token.length < 16) {
-    throw new HttpError(401, "Bearer player token is required");
-  }
-  return token;
+  return result.data;
 }
 
-function requireStockPileSize(value: unknown): number | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-  if (!Number.isInteger(value) || (value as number) < 1) {
-    throw new HttpError(400, "stockPileSize must be a positive integer");
-  }
-  return value as number;
-}
-
-function requireCommand(value: unknown): Command {
-  if (!isRecord(value) || typeof value.type !== "string") {
-    throw new HttpError(400, "command is invalid");
-  }
-
-  if (
-    value.type === "playCard" &&
-    typeof value.cardValue === "number" &&
-    Number.isInteger(value.cardValue) &&
-    typeof value.destinationIndex === "number" &&
-    Number.isInteger(value.destinationIndex) &&
-    isPlaySource(value.source)
-  ) {
-    return {
-      type: "playCard",
-      cardValue: value.cardValue,
-      destinationIndex: value.destinationIndex,
-      source: value.source,
-    };
-  }
-
-  if (
-    value.type === "discardCard" &&
-    typeof value.cardValue === "number" &&
-    Number.isInteger(value.cardValue) &&
-    typeof value.discardPileIndex === "number" &&
-    Number.isInteger(value.discardPileIndex) &&
-    isRecord(value.source) &&
-    value.source.type === "hand" &&
-    typeof value.source.index === "number" &&
-    Number.isInteger(value.source.index)
-  ) {
-    return {
-      type: "discardCard",
-      cardValue: value.cardValue,
-      discardPileIndex: value.discardPileIndex,
-      source: {
-        type: "hand",
-        index: value.source.index,
-      },
-    };
-  }
-
-  throw new HttpError(400, "command is invalid");
-}
-
-function isPlaySource(value: unknown): value is PlayCardSource {
-  if (!isRecord(value) || typeof value.type !== "string") {
-    return false;
-  }
-  if (value.type === "stockPile") {
-    return true;
-  }
-  return (
-    (value.type === "hand" || value.type === "discardPile") &&
-    typeof value.index === "number" &&
-    Number.isInteger(value.index)
+function requirePlayerCookieToken(request: Request): string {
+  const result = PlayerTokenSchema.safeParse(
+    readCookie(request, PLAYER_COOKIE_NAME),
   );
+  if (!result.success) {
+    throw new HttpError(
+      401,
+      "unauthorized",
+      "A cookie-authenticated player session is required",
+    );
+  }
+  return result.data;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+function readCookie(request: Request, name: string): string | null {
+  const cookieHeader = request.headers.get("cookie");
+  if (cookieHeader === null) {
+    return null;
+  }
+  for (const part of cookieHeader.split(";")) {
+    const separator = part.indexOf("=");
+    if (separator < 0 || part.slice(0, separator).trim() !== name) {
+      continue;
+    }
+    try {
+      return decodeURIComponent(part.slice(separator + 1).trim());
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+function playerCookie(
+  request: Request,
+  gameId: string,
+  token: string,
+  maxAge: number,
+): string {
+  const attributes = [
+    `${PLAYER_COOKIE_NAME}=${encodeURIComponent(token)}`,
+    `Path=/api/games/${gameId}`,
+    `Max-Age=${maxAge}`,
+    "HttpOnly",
+    "SameSite=Strict",
+  ];
+  if (new URL(request.url).protocol === "https:") {
+    attributes.push("Secure");
+  }
+  return attributes.join("; ");
+}
+
+function withCookie(response: Response, cookie: string): Response {
+  const headers = new Headers(response.headers);
+  headers.set("set-cookie", cookie);
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
 }
 
 class HttpError extends Error {
   constructor(
     readonly status: number,
+    readonly code: ApiErrorCode,
     message: string,
+    readonly currentRevision?: number,
   ) {
     super(message);
   }
@@ -141,73 +223,130 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     try {
       const url = new URL(request.url);
-      const gameId = getGameIdFromPath(url.pathname);
 
       if (request.method === "POST" && url.pathname === "/api/games") {
-        const newGameId = createGameId();
-        const room = env.GAME_ROOM.getByName(newGameId);
-        const state = await room.initialize();
-
-        return json({ gameId: newGameId, state }, { status: 201 });
+        await parseJson(request, CreateGameRequestSchema, true);
+        const gameId = createGameId();
+        const state = await env.GAME_ROOM.getByName(gameId).initialize();
+        return json({ gameId, state }, { status: 201 });
       }
 
-      if (!gameId) {
-        return json({ error: "Not found" }, { status: 404 });
+      const gameId = getGameIdFromPath(url.pathname);
+      if (gameId === null) {
+        throw new HttpError(404, "not_found", "Not found");
       }
-
       const room = env.GAME_ROOM.getByName(gameId);
+
+      if (
+        request.method === "GET" &&
+        url.pathname === `/api/games/${gameId}/ws`
+      ) {
+        if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
+          return apiError(
+            426,
+            "invalid_request",
+            "Expected a WebSocket upgrade",
+          );
+        }
+        const playerToken = requirePlayerCookieToken(request);
+        await room.getView(playerToken);
+        const headers = new Headers(request.headers);
+        headers.set(INTERNAL_PLAYER_TOKEN_HEADER, playerToken);
+        return room.fetch(new Request(request, { headers }));
+      }
 
       if (
         request.method === "GET" &&
         url.pathname === `/api/games/${gameId}/state`
       ) {
-        const playerToken = requirePlayerToken(request);
-        return json(await room.getView(playerToken));
+        const view = await room.getView(requirePlayerToken(request));
+        return json(PlayerViewSchema.parse(view));
       }
 
       if (
         request.method === "POST" &&
         url.pathname === `/api/games/${gameId}/join`
       ) {
-        const body = (await readJson(request)) as Partial<JoinRoomRequest>;
-        const playerName = requirePlayerName(body.playerName);
-        return json(await room.join(playerName));
+        const body = await parseJson(request, JoinRoomRequestSchema);
+        const result = await room.join(body.playerName);
+        const response = json({
+          playerToken: result.playerToken,
+          view: PlayerViewSchema.parse(result.view),
+        });
+        return withCookie(
+          response,
+          playerCookie(
+            request,
+            gameId,
+            result.playerToken,
+            PLAYER_COOKIE_MAX_AGE_SECONDS,
+          ),
+        );
       }
 
       if (
         request.method === "POST" &&
         url.pathname === `/api/games/${gameId}/start`
       ) {
-        const body = (await readJson(request)) as Partial<StartGameRequest>;
-        return json(
-          await room.start(
-            requirePlayerToken(request),
-            requireStockPileSize(body.stockPileSize),
-          ),
+        const body = await parseJson(request, StartGameRequestSchema);
+        const view = await room.start(
+          requirePlayerToken(request),
+          body.expectedRevision,
+          body.stockPileSize,
         );
+        return json(PlayerViewSchema.parse(view));
       }
 
       if (
         request.method === "POST" &&
         url.pathname === `/api/games/${gameId}/commands`
       ) {
-        const body = (await readJson(request)) as Partial<PlayCommandRequest>;
-        return json(
-          await room.playCommand(
-            requirePlayerToken(request),
-            requireCommand(body.command),
-          ),
+        const body = await parseJson(request, PlayCommandRequestSchema);
+        const result = await room.playCommand(
+          requirePlayerToken(request),
+          body.expectedRevision,
+          CommandSchema.parse(body.command),
+        );
+        return json({
+          ...result,
+          view: PlayerViewSchema.parse(result.view),
+        });
+      }
+
+      if (
+        request.method === "DELETE" &&
+        url.pathname === `/api/games/${gameId}/players/me`
+      ) {
+        const body = await parseJson(request, LeaveRoomRequestSchema);
+        const result = await room.leave(
+          requirePlayerToken(request),
+          body.expectedRevision,
+        );
+        return withCookie(
+          json(result),
+          playerCookie(request, gameId, "", 0),
         );
       }
 
-      return json({ error: "Not found" }, { status: 404 });
+      throw new HttpError(404, "not_found", "Not found");
     } catch (error) {
       if (error instanceof HttpError) {
-        return json({ error: error.message }, { status: error.status });
+        return apiError(error.status, error.code, error.message, error.currentRevision);
       }
-      const roomErrorMessage = getRoomErrorMessage(error);
-      if (roomErrorMessage !== null) {
-        return json({ error: roomErrorMessage }, { status: 409 });
+      const roomError = parseRoomError(error);
+      if (roomError !== null) {
+        const status =
+          roomError.code === "unauthorized"
+            ? 401
+            : roomError.code === "not_found"
+              ? 404
+              : 409;
+        return apiError(
+          status,
+          roomError.code,
+          roomError.message,
+          roomError.currentRevision,
+        );
       }
       console.error(
         JSON.stringify({
@@ -215,21 +354,23 @@ export default {
           message: error instanceof Error ? error.message : String(error),
         }),
       );
-      return json({ error: "Internal server error" }, { status: 500 });
+      return apiError(500, "internal_error", "Internal server error");
     }
   },
 } satisfies ExportedHandler<Env>;
 
-function getRoomErrorMessage(error: unknown): string | null {
-  if (!(error instanceof Error)) {
-    return null;
-  }
-  if (error.name === "RoomError") {
-    return error.message;
-  }
-
-  const remotePrefix = "RoomError: ";
-  return error.message.startsWith(remotePrefix)
-    ? error.message.slice(remotePrefix.length)
-    : null;
+function apiError(
+  status: number,
+  code: ApiErrorCode,
+  message: string,
+  currentRevision?: number,
+): Response {
+  const body: ApiError = ApiErrorSchema.parse({
+    error: {
+      code,
+      message,
+      ...(currentRevision === undefined ? {} : { currentRevision }),
+    },
+  });
+  return json(body, { status });
 }

@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Keeping a Revisioned Game Client Honest</title>
+    <link rel="stylesheet" href="../assets/lesson.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <div class="kicker">Skip-Bo React Client · Lesson 0010</div>
+        <h1>Keeping a revisioned game client honest</h1>
+        <p class="lead">
+          A responsive interface can feel optimistic without becoming a second
+          rules engine.
+        </p>
+        <div class="meta">Completed slice: Phase 3A React client</div>
+      </header>
+
+      <h2>The reducer is the snapshot gate</h2>
+      <p>
+        Every HTTP response is a complete <code>PlayerView</code>. The top-level
+        reducer accepts the first valid view, then replaces it only when the
+        incoming revision is strictly greater. An old poll, duplicate response,
+        or out-of-order completion cannot rewind the table.
+      </p>
+
+      <pre><code>if (incoming.revision &lt;= current.revision) {
+  return current; // duplicate or stale delivery
+}
+return incoming;</code></pre>
+
+      <h2>Interaction projects authority; it does not invent it</h2>
+      <p>
+        A card becomes active only when at least one server-provided legal
+        command names its exact source. Glowing piles are the destinations in
+        those same commands. Dragging outside, cancelling, or choosing any
+        other pile produces no command.
+      </p>
+
+      <div class="flow">
+        <div><strong>Server</strong>Returns exact legal commands.</div>
+        <div><strong>Client</strong>Maps source and destination highlights.</div>
+        <div><strong>Server</strong>Validates the submitted command again.</div>
+      </div>
+
+      <h2>Failure preserves orientation</h2>
+      <p>
+        A pending-operation gate prevents duplicate mutations. If a request
+        fails, Sonner explains the safe error while the last valid table stays
+        on screen. A stale-revision response triggers a full refresh. After a
+        keyboard play, focus moves to the updated turn heading or completion
+        result so the player immediately receives the new context.
+      </p>
+
+      <div class="callout">
+        <strong>Security boundary:</strong> JavaScript stores only the public
+        game ID. Same-origin cookies carry private session authority and are
+        never copied into local storage or request headers by the client.
+      </div>
+
+      <h2>Retrieve before revealing</h2>
+      <details>
+        <summary>Why ignore an equal-revision manual refresh?</summary>
+        <p>
+          It contains no newer durable state. Clearing the pending indicator is
+          useful; replacing the canonical view is unnecessary.
+        </p>
+      </details>
+      <details>
+        <summary>Why keep polling in one hook?</summary>
+        <p>
+          Polling provides Phase 3 parity, but Phase 4 should replace one
+          transport seam with a subscription rather than rewrite the screens.
+        </p>
+      </details>
+
+      <h2>Primary sources</h2>
+      <ul>
+        <li><a href="https://react.dev/reference/react/useReducer">React: useReducer</a></li>
+        <li><a href="https://docs.dndkit.com/guides/accessibility">dnd-kit: accessibility</a></li>
+        <li><a href="https://developer.mozilla.org/en-US/docs/Web/HTTP/Cookies">MDN: Using HTTP cookies</a></li>
+      </ul>
+
+      <footer>
+        Previous: <a href="./0009-versioning-the-player-safe-transport.html">Versioning the player-safe transport</a>.
+        Trace one legal command from a fixture to its highlighted pile, then ask
+        the agent about any reducer, focus, or transport boundary that is unclear.
+      </footer>
+    </main>
+  </body>
+</html>

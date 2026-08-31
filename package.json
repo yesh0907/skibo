@@ -3,20 +3,39 @@
   "type": "module",
   "private": true,
   "scripts": {
+    "build:web": "bun run ./src/web/build.ts",
     "dev": "wrangler dev",
-    "check": "wrangler types --check && tsc --noEmit",
+    "check": "wrangler types --check --env-file .env.types && tsc --noEmit",
     "cli": "bun run ./src/cli/index.ts",
     "play": "bun run ./src/cli/play.ts",
     "simulate": "bun run ./src/cli/simulate.ts",
     "test": "bun test",
-    "types:cf": "wrangler types"
+    "test:e2e": "playwright test",
+    "react:doctor": "CI=1 react-doctor . --scope changed --base HEAD --blocking warning --no-score --yes",
+    "types:cf": "wrangler types --env-file .env.types"
+  },
+  "dependencies": {
+    "@dnd-kit/core": "6.3.1",
+    "@dnd-kit/sortable": "10.0.0",
+    "clsx": "2.1.1",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "sonner": "2.0.8",
+    "tailwind-merge": "3.6.0",
+    "zod": "4.4.3"
   },
   "devDependencies": {
-    "@types/bun": "latest",
-    "typescript": "^5.8.3",
-    "wrangler": "^4.39.0"
-  },
-  "peerDependencies": {
-    "typescript": "^5"
+    "@happy-dom/global-registrator": "20.11.2",
+    "@playwright/test": "1.62.1",
+    "@testing-library/dom": "10.4.1",
+    "@testing-library/jest-dom": "7.0.1",
+    "@testing-library/react": "16.3.2",
+    "@testing-library/user-event": "14.6.4",
+    "@types/bun": "1.3.11",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.4",
+    "react-doctor": "0.9.12",
+    "typescript": "5.9.3",
+    "wrangler": "4.125.0"
   }
 }

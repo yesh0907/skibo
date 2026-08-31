@@ -1,6 +1,7 @@
 import { describe, expect, mock, test } from "bun:test";
 
 import type { RoomState } from "../shared/room-state";
+import { ServerWebSocketEnvelopeSchema } from "../shared/transport";
 import type { Env as GameRoomEnv } from "../worker/game-room-do";
 
 mock.module("cloudflare:workers", () => ({
@@ -15,6 +16,44 @@ mock.module("cloudflare:workers", () => ({
 const { GameRoomDO } = await import("../worker/game-room-do");
 
 type TestRoom = InstanceType<typeof GameRoomDO>;
+
+class TestWebSocket extends EventTarget implements WebSocket {
+  attachment: unknown = null;
+  readonly sent: string[] = [];
+  readonly closes: Array<{ code?: number; reason?: string }> = [];
+  readonly CONNECTING = 0;
+  readonly OPEN = 1;
+  readonly CLOSING = 2;
+  readonly CLOSED = 3;
+  binaryType: "blob" | "arraybuffer" = "arraybuffer";
+  readonly bufferedAmount = 0;
+  readonly extensions = "";
+  onclose: ((this: WebSocket, event: CloseEvent) => unknown) | null = null;
+  onerror: ((this: WebSocket, event: Event) => unknown) | null = null;
+  onmessage: ((this: WebSocket, event: MessageEvent) => unknown) | null = null;
+  onopen: ((this: WebSocket, event: Event) => unknown) | null = null;
+  readonly protocol = "";
+  readonly readyState = 1;
+  readonly url = "";
+
+  accept(): void {}
+
+  serializeAttachment(value: unknown): void {
+    this.attachment = structuredClone(value);
+  }
+
+  deserializeAttachment(): unknown {
+    return structuredClone(this.attachment);
+  }
+
+  send(message: string | ArrayBuffer): void {
+    this.sent.push(String(message));
+  }
+
+  close(code?: number, reason?: string): void {
+    this.closes.push({ code, reason });
+  }
+}
 
 class InMemoryDurableObjectStorage {
   #values = new Map<string, unknown>();
@@ -125,9 +164,11 @@ class InMemoryDurableObjectStorage {
 function createRoom(
   gameId: string,
   storage = new InMemoryDurableObjectStorage(),
+  sockets: TestWebSocket[] = [],
 ): {
   room: TestRoom;
   storage: InMemoryDurableObjectStorage;
+  sockets: TestWebSocket[];
 } {
   const ctx = {
     storage,
@@ -140,7 +181,7 @@ function createRoom(
     waitUntil: (_promise: Promise<unknown>) => {},
     blockConcurrencyWhile: async <T>(callback: () => Promise<T>) => callback(),
     acceptWebSocket: (_ws: WebSocket, _tags?: string[]) => {},
-    getWebSockets: (_tag?: string) => [],
+    getWebSockets: (_tag?: string) => sockets,
     setWebSocketAutoResponse: (
       _maybeReqResp?: WebSocketRequestResponsePair,
     ) => {},
@@ -157,6 +198,7 @@ function createRoom(
   return {
     room: new GameRoomDO(ctx, {} as GameRoomEnv),
     storage,
+    sockets,
   };
 }
 
@@ -175,6 +217,7 @@ describe("GameRoomDO", () => {
 
     expect(room.getState()).resolves.toEqual<RoomState>({
       gameId: "game_test",
+      revision: 0,
       status: "waiting",
       players: [],
       gameState: null,
@@ -198,6 +241,7 @@ describe("GameRoomDO", () => {
     const updated = await room.getState();
 
     expect(updated).toMatchObject({
+      revision: 2,
       status: "waiting",
       gameState: null,
     });
@@ -217,11 +261,12 @@ describe("GameRoomDO", () => {
     const alice = await room.join("Alice");
     await room.join("Bob");
 
-    const view = await room.start(alice.playerToken, 5);
+    const view = await room.start(alice.playerToken, 2, 5);
 
     expect(view).toMatchObject({
       gameId: "game_test",
-      status: "started",
+      revision: 3,
+      status: "playing",
       currentPlayerName: "Alice",
       isYourTurn: true,
     });
@@ -235,7 +280,8 @@ describe("GameRoomDO", () => {
 
     const solo = await room.join("Solo");
 
-    expect(room.start(solo.playerToken, 5)).rejects.toThrow();
+    expect(room.start(solo.playerToken, 1, 5)).rejects.toThrow();
+    expect((await room.getState()).revision).toBe(1);
   });
 
   test("does not allow joining after the room has started", async () => {
@@ -243,7 +289,7 @@ describe("GameRoomDO", () => {
 
     const alice = await room.join("Alice");
     await room.join("Bob");
-    await room.start(alice.playerToken, 5);
+    await room.start(alice.playerToken, 2, 5);
 
     expect(room.join("Carol")).rejects.toThrow();
   });
@@ -264,7 +310,7 @@ describe("GameRoomDO", () => {
 
     const alice = await room.join("Alice");
     const bob = await room.join("Bob");
-    await room.start(alice.playerToken, 5);
+    await room.start(alice.playerToken, 2, 5);
 
     const aliceView = await room.getView(alice.playerToken);
     const bobView = await room.getView(bob.playerToken);
@@ -281,39 +327,141 @@ describe("GameRoomDO", () => {
     expect(bobView.legalCommands).toEqual([]);
   });
 
+  test("restores attached player identities and broadcasts private views after hibernation", async () => {
+    const setup = createRoom("game_test");
+    await setup.room.initialize();
+    const alice = await setup.room.join("Alice");
+    const bob = await setup.room.join("Bob");
+    const aliceSocket = new TestWebSocket();
+    const bobSocket = new TestWebSocket();
+    aliceSocket.serializeAttachment({
+      version: 1,
+      playerToken: alice.playerToken,
+      playerName: "Alice",
+    });
+    bobSocket.serializeAttachment({
+      version: 1,
+      playerToken: bob.playerToken,
+      playerName: "Bob",
+    });
+
+    const rehydrated = createRoom("game_test", setup.storage, [
+      aliceSocket,
+      bobSocket,
+    ]).room;
+    await rehydrated.start(alice.playerToken, 2, 5);
+
+    const aliceEnvelope = ServerWebSocketEnvelopeSchema.parse(
+      JSON.parse(aliceSocket.sent.at(-1)!),
+    );
+    const bobEnvelope = ServerWebSocketEnvelopeSchema.parse(
+      JSON.parse(bobSocket.sent.at(-1)!),
+    );
+    expect(aliceEnvelope.view.viewerName).toBe("Alice");
+    expect(bobEnvelope.view.viewerName).toBe("Bob");
+    expect(
+      aliceEnvelope.view.players.find((player) => player.name === "Alice")
+        ?.cardsInHand,
+    ).toHaveLength(5);
+    expect(
+      aliceEnvelope.view.players.find((player) => player.name === "Bob")
+        ?.cardsInHand,
+    ).toBeNull();
+    expect(
+      bobEnvelope.view.players.find((player) => player.name === "Bob")
+        ?.cardsInHand,
+    ).toHaveLength(5);
+    expect(
+      bobEnvelope.view.players.find((player) => player.name === "Alice")
+        ?.cardsInHand,
+    ).toBeNull();
+  });
+
+  test("rejects client messages and closes failed or invalid connections safely", async () => {
+    const { room } = createRoom("game_test");
+    const messageSocket = new TestWebSocket();
+    const errorSocket = new TestWebSocket();
+    const closeSocket = new TestWebSocket();
+
+    room.webSocketMessage(messageSocket, "command");
+    room.webSocketError(
+      errorSocket,
+      new Error("private runtime detail"),
+    );
+    room.webSocketClose(
+      closeSocket,
+      1000,
+      "done",
+      true,
+    );
+
+    expect(messageSocket.closes).toEqual([
+      { code: 1008, reason: "Client messages are not supported" },
+    ]);
+    expect(errorSocket.closes).toEqual([
+      { code: 1011, reason: "Live update connection failed" },
+    ]);
+    expect(closeSocket.closes).toEqual([]);
+  });
+
+  test("closes sockets whose hibernation attachment is invalid or revoked", async () => {
+    const setup = createRoom("game_test");
+    await setup.room.initialize();
+    const alice = await setup.room.join("Alice");
+    const invalidSocket = new TestWebSocket();
+    invalidSocket.serializeAttachment({ playerName: "Alice" });
+    const revokedSocket = new TestWebSocket();
+    revokedSocket.serializeAttachment({
+      version: 1,
+      playerToken: alice.playerToken,
+      playerName: "Mallory",
+    });
+    const rehydrated = createRoom("game_test", setup.storage, [
+      invalidSocket,
+      revokedSocket,
+    ]).room;
+
+    await rehydrated.join("Bob");
+
+    expect(invalidSocket.closes[0]?.code).toBe(1008);
+    expect(revokedSocket.closes[0]?.code).toBe(1008);
+    expect(invalidSocket.sent).toEqual([]);
+    expect(revokedSocket.sent).toEqual([]);
+  });
+
   test("rejects invalid player tokens for views, starts, and commands", async () => {
     const { room } = await createInitializedRoom("game_test");
     const alice = await room.join("Alice");
     await room.join("Bob");
 
     expect(room.getView("invalid-player-token")).rejects.toThrow(
-      "Player token is invalid",
+      '"code":"unauthorized"',
     );
-    expect(room.start("invalid-player-token", 5)).rejects.toThrow(
-      "Player token is invalid",
+    expect(room.start("invalid-player-token", 2, 5)).rejects.toThrow(
+      '"code":"unauthorized"',
     );
 
-    await room.start(alice.playerToken, 5);
+    await room.start(alice.playerToken, 2, 5);
     expect(
-      room.playCommand("invalid-player-token", {
+      room.playCommand("invalid-player-token", 3, {
         type: "discardCard",
         cardValue: 1,
         source: { type: "hand", index: 0 },
         discardPileIndex: 0,
       }),
-    ).rejects.toThrow("Player token is invalid");
+    ).rejects.toThrow('"code":"unauthorized"');
   });
 
   test("rejects a command from a player who does not own the turn", async () => {
     const { room } = await createInitializedRoom("game_test");
     const alice = await room.join("Alice");
     const bob = await room.join("Bob");
-    await room.start(alice.playerToken, 5);
+    await room.start(alice.playerToken, 2, 5);
 
     const aliceView = await room.getView(alice.playerToken);
 
     expect(
-      room.playCommand(bob.playerToken, aliceView.legalCommands[0]!),
+      room.playCommand(bob.playerToken, 3, aliceView.legalCommands[0]!),
     ).rejects.toThrow("It is not Bob's turn");
   });
 
@@ -321,10 +469,10 @@ describe("GameRoomDO", () => {
     const { room } = await createInitializedRoom("game_test");
     const alice = await room.join("Alice");
     await room.join("Bob");
-    await room.start(alice.playerToken, 5);
+    await room.start(alice.playerToken, 2, 5);
 
     expect(
-      room.playCommand(alice.playerToken, {
+      room.playCommand(alice.playerToken, 3, {
         type: "playCard",
         cardValue: 12,
         source: { type: "stockPile" },
@@ -338,12 +486,12 @@ describe("GameRoomDO", () => {
     await setup.room.initialize();
     const alice = await setup.room.join("Alice");
     const bob = await setup.room.join("Bob");
-    const aliceView = await setup.room.start(alice.playerToken, 5);
+    const aliceView = await setup.room.start(alice.playerToken, 2, 5);
     const command = aliceView.legalCommands.find(
       (candidate) => candidate.type === "discardCard",
     )!;
 
-    const result = await setup.room.playCommand(alice.playerToken, command);
+    const result = await setup.room.playCommand(alice.playerToken, 3, command);
     const rehydratedRoom = createRoom("game_test", setup.storage).room;
     const persistedBobView = await rehydratedRoom.getView(bob.playerToken);
 
@@ -354,6 +502,7 @@ describe("GameRoomDO", () => {
       false,
     );
     expect(result.view.currentPlayerName).toBe("Bob");
+    expect(result.view.revision).toBe(4);
     expect(persistedBobView.currentPlayerName).toBe("Bob");
     expect(persistedBobView.isYourTurn).toBe(true);
   });
@@ -365,6 +514,108 @@ describe("GameRoomDO", () => {
 
     expect(setup.room.join("Alice")).rejects.toThrow("storage unavailable");
     expect((await setup.room.getState()).players).toEqual([]);
+    expect((await setup.room.getState()).revision).toBe(0);
+  });
+
+  test("rejects stale starts and commands without changing the revision", async () => {
+    const { room } = await createInitializedRoom("game_test");
+    const alice = await room.join("Alice");
+    await room.join("Bob");
+
+    expect(room.start(alice.playerToken, 1, 5)).rejects.toThrow(
+      '"code":"stale_revision"',
+    );
+    expect((await room.getState()).revision).toBe(2);
+
+    const view = await room.start(alice.playerToken, 2, 5);
+    expect(
+      room.playCommand(alice.playerToken, 2, view.legalCommands[0]!),
+    ).rejects.toThrow('"currentRevision":3');
+    expect((await room.getState()).revision).toBe(3);
+  });
+
+  test("removes a waiting player, revokes the token, and advances once", async () => {
+    const { room } = await createInitializedRoom("game_test");
+    const alice = await room.join("Alice");
+    const bob = await room.join("Bob");
+
+    await expect(room.leave(alice.playerToken, 2)).resolves.toEqual({
+      revision: 3,
+    });
+    expect((await room.getState()).players.map((player) => player.name)).toEqual([
+      "Bob",
+    ]);
+    expect(room.getView(alice.playerToken)).rejects.toThrow(
+      '"code":"unauthorized"',
+    );
+    expect((await room.getView(bob.playerToken)).revision).toBe(3);
+  });
+
+  test("rejects leaving after start without removing the seat", async () => {
+    const { room } = await createInitializedRoom("game_test");
+    const alice = await room.join("Alice");
+    await room.join("Bob");
+    await room.start(alice.playerToken, 2, 5);
+
+    expect(room.leave(alice.playerToken, 3)).rejects.toThrow(
+      '"code":"room_conflict"',
+    );
+    expect((await room.getState()).players).toHaveLength(2);
+    expect((await room.getState()).revision).toBe(3);
+  });
+
+  test("returns stale_revision before a conflicting start or leave transition", async () => {
+    const { room } = await createInitializedRoom("game_test");
+    const alice = await room.join("Alice");
+    await room.join("Bob");
+    await room.start(alice.playerToken, 2, 5);
+
+    expect(room.start(alice.playerToken, 2, 5)).rejects.toThrow(
+      '"code":"stale_revision"',
+    );
+    expect(room.leave(alice.playerToken, 2)).rejects.toThrow(
+      '"code":"stale_revision"',
+    );
+  });
+
+  test("keeps the prior revision when start, command, or leave persistence fails", async () => {
+    const startSetup = createRoom("game_start_failure");
+    await startSetup.room.initialize();
+    const startAlice = await startSetup.room.join("Alice");
+    await startSetup.room.join("Bob");
+    startSetup.storage.failNextPut(new Error("start storage unavailable"));
+    expect(startSetup.room.start(startAlice.playerToken, 2, 5)).rejects.toThrow(
+      "start storage unavailable",
+    );
+    expect((await startSetup.room.getState()).revision).toBe(2);
+
+    const commandSetup = createRoom("game_command_failure");
+    await commandSetup.room.initialize();
+    const commandAlice = await commandSetup.room.join("Alice");
+    await commandSetup.room.join("Bob");
+    const commandView = await commandSetup.room.start(
+      commandAlice.playerToken,
+      2,
+      5,
+    );
+    commandSetup.storage.failNextPut(new Error("command storage unavailable"));
+    expect(
+      commandSetup.room.playCommand(
+        commandAlice.playerToken,
+        3,
+        commandView.legalCommands[0]!,
+      ),
+    ).rejects.toThrow("command storage unavailable");
+    expect((await commandSetup.room.getState()).revision).toBe(3);
+
+    const leaveSetup = createRoom("game_leave_failure");
+    await leaveSetup.room.initialize();
+    const leaveAlice = await leaveSetup.room.join("Alice");
+    leaveSetup.storage.failNextPut(new Error("leave storage unavailable"));
+    expect(leaveSetup.room.leave(leaveAlice.playerToken, 1)).rejects.toThrow(
+      "leave storage unavailable",
+    );
+    expect((await leaveSetup.room.getState()).revision).toBe(1);
   });
 
   test("rejects legacy started state instead of silently reopening it", async () => {

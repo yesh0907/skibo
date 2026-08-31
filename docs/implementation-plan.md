@@ -2,8 +2,8 @@
 
 ## Status
 
-- Current phase: Phase 3 Playable Web UI complete
-- Current focus: test and refine the browser gameplay loop before adding real-time transport
+- Current phase: Phase 5 browser hardening and playtesting
+- Current focus: exercise the parity React client with real players and harden failures found in playtesting
 - Progress:
   - established project goals and collaboration model
   - chose a CLI-first architecture
@@ -61,6 +61,38 @@
   - added HTTP polling for opponent turns as the temporary update transport
   - verified a real two-browser create, join, start, card-selection flow at desktop and mobile sizes
   - caught and fixed a browser-only hand-rendering failure through the end-to-end interaction check
+  - replaced the command action tray with mouse-and-touch pointer dragging onto exact legal destinations
+  - derived glowing drop targets directly from server-provided legal commands instead of recreating rule predicates
+  - displayed the effective sequence value on wild cards after they enter a build pile
+  - rendered each opponent's public stock top as a visible card with its remaining count
+  - added 10, 15, 20, and 25-card game lengths and disabled sizes that cannot fit the joined roster
+  - made terminal games unmistakable with a full-screen winner or loser result overlay
+  - verified drag interaction and a complete networked game through the winner state in a real browser
+  - pinned the shared React 19, Tailwind v4, shadcn, Sonner, dnd-kit, Zod, Testing Library, Playwright, and React Doctor toolchain
+  - established strict Zod transport schemas and inferred types for revisioned player views, API errors, mutation requests, and planned state-only WebSocket envelopes
+  - documented the zero-based monotonic room revision contract without wiring revision transitions into the current Worker or Durable Object
+  - added waiting, playing, finished, stale-snapshot, and stale-envelope fixtures as executable contract examples
+  - scaffolded a reducer-backed React build at `/react/` while preserving the playable static client at `/`
+  - configured Bun HTML bundling with the Tailwind plugin, selective new-york shadcn aliases, Wrangler custom builds and static assets, RTL/user-event, Playwright, and a warning-blocking React Doctor Prek hook
+  - integrated the React client with the revisioned Worker and Durable Object HTTP contract for create, join, read, start, command, waiting-room leave, local exit, polling, and reload restoration
+  - moved React player authority into game-scoped HttpOnly same-origin cookies while storing only the public game id in browser storage
+  - kept temporary bearer authentication and the legacy join token response for the existing diagnostic and static clients
+  - shared the revisioned leave request and response schemas across the Worker and React API client
+  - verified player-safe projections in real isolated browser contexts so each player receives only their own hand and no persisted room token fields
+  - added Playwright acceptance coverage for create/join/start, a legal move, reload restoration, waiting-room leave, stale and illegal command rejection, safe errors, and unchanged revisions after rejection
+  - added a cookie-authenticated Worker WebSocket upgrade route that validates room ownership before forwarding the request with `stub.fetch`
+  - adopted the native Durable Object Hibernation API with serialized, versioned player attachments and message, close, and error lifecycle handlers
+  - broadcast a separately projected, Zod-validated `PlayerView` envelope to every authenticated connection only after durable room mutations succeed
+  - kept all gameplay mutations on revisioned HTTP Worker-to-DO RPC and rejected WebSocket client messages
+  - replaced the React 2.5-second polling hook with a bounded exponential reconnect controller, online/offline recovery, and an HTTP snapshot after every connection
+  - retained the last valid view through transient live-update errors and exposed connection state through an accessible live status region
+  - removed background polling from both browser surfaces while retaining manual HTTP refresh and temporary HTTP bearer compatibility
+  - proved live private opponent updates and reconnect snapshot recovery with two isolated browser contexts through local Wrangler Chromium acceptance
+  - promoted the React client from the temporary `/react/` migration path to the root product surface and redirected the old scaffold path to `/`
+  - removed the duplicate legacy browser implementation while preserving its light visual system, responsive table layout, lobby controls, mouse and touch drag affordances, keyboard selection flow, and winner treatment
+  - migrated active legacy tabs to the cookie-authenticated React client using only the validated public game id and deleted the obsolete browser-readable bearer token
+  - restored lobby feasibility guards so games cannot start with one player and stock-size choices remain valid for the joined roster
+  - extended Wrangler-backed Chromium acceptance to exercise mouse and touch drag sensors plus the narrow responsive breakpoint against the root React client instead of relying only on click selection and CSS text
 
 ## Working Agreement
 
@@ -398,23 +430,25 @@ Goal: make the authoritative game easy to play and iterate on in a browser.
 Build:
 
 - create and join room flow
-- locally persisted player token
+- game-scoped HttpOnly cookie sessions with only the public game id persisted in browser storage
 - waiting-room roster and start action
+- revision-guarded waiting-room leave and local exit after start
 - game table for build, stock, hand, and discard piles
 - exact legal-command interaction
 - HTTP polling for opponent turns
+- isolated-context browser acceptance coverage for the integrated Worker/DO/React boundary
 
 ## Phase 4: Real-Time Transport
 
 Goal: make multiplayer updates live.
 
-Build:
+Completed:
 
-- WebSocket upgrade route
-- client registration in the DO
-- broadcast on game state changes
-- reconnect support
-- if it stays manageable, use the DO hibernation WebSocket API so the project teaches a Cloudflare-specific real-time pattern
+- cookie-authenticated WebSocket upgrade route with Worker-side ownership validation
+- native Hibernation WebSocket registration and player attachment recovery in the DO
+- versioned, player-specific full-view broadcasts after persisted game state changes
+- bounded reconnect support with an HTTP snapshot on every connection
+- no client command protocol and no background fallback polling
 
 ## Phase 5: Hardening
 
@@ -422,11 +456,10 @@ Goal: make the system resilient enough for real playtesting.
 
 Build:
 
-- reconnect after disconnect
-- persisted local player identity
-- invalid action handling
-- out-of-turn protection
-- tests for reconnect and state recovery
+- longer friend-play sessions and deploy-induced disconnect testing in a non-production environment
+- waiting-room seat expiry or explicit post-start forfeiture, if playtesting proves either is needed
+- reconnect-frequency and repeated-socket-failure observability without private player state
+- removal of temporary bearer compatibility when diagnostic clients no longer require it
 
 ## Collaboration Model
 
@@ -455,21 +488,9 @@ For this project, a good mental shortcut is:
 
 ## Immediate Next Step
 
-The next concrete implementation step is to playtest and refine the browser
-workflow, then replace polling with real-time updates:
+The root React parity slice is complete. The next concrete work remains focused Phase 5 hardening:
 
-- run complete short games between two browser tabs and capture usability gaps
-- improve finished-game and recoverable connection states where playtesting exposes friction
-- add a Worker WebSocket upgrade route and authenticate the connection
-- register sockets with the game Durable Object and broadcast after persisted moves
-- preserve HTTP commands and player-specific `GameView` projection as the authority boundary
-
-Supporting scaffolding now exists for the completed Phase 0 spike:
-
-- `src/shared/room-state.ts`
-- `src/worker/index.ts`
-- `src/worker/game-room-do.ts`
-- `src/tests/game-room-do.test.ts`
-- `src/cli/index.ts`
-
-That gives us a working reference boundary for the Durable Object spike, so the next learning-heavy work can stay focused on pure game rules.
+- exercise longer friend-play sessions and deploy-induced WebSocket disconnects in a non-production environment
+- decide whether waiting-room seat expiry or explicit post-start forfeiture belongs in the product
+- add observability for reconnect frequency and repeated socket failures without logging private player state
+- revisit the temporary legacy bearer compatibility seam once non-React diagnostic clients no longer require it
