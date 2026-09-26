@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# This repository has no external services or expiring authentication to repair.
+printf 'No orb resume steps are required.\n'

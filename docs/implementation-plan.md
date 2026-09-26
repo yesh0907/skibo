@@ -93,6 +93,7 @@
   - migrated active legacy tabs to the cookie-authenticated React client using only the validated public game id and deleted the obsolete browser-readable bearer token
   - restored lobby feasibility guards so games cannot start with one player and stock-size choices remain valid for the joined roster
   - extended Wrangler-backed Chromium acceptance to exercise mouse and touch drag sensors plus the narrow responsive breakpoint against the root React client instead of relying only on click selection and CSS text
+  - prepared fresh Amp orbs with idempotent locked dependency and Playwright Chromium setup plus a fast no-op resume lifecycle
 
 ## Working Agreement
 

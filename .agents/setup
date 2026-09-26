@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$repo_root"
+
+run_step() {
+  local label="$1"
+  shift
+
+  local started_at=$SECONDS
+  printf '==> %s\n' "$label"
+  "$@"
+  printf '<== %s (%ss)\n' "$label" "$((SECONDS - started_at))"
+}
+
+if ! command -v bun >/dev/null 2>&1; then
+  printf 'error: Bun is required but is not installed in this orb\n' >&2
+  exit 1
+fi
+
+run_step "Install locked Bun dependencies" bun install --frozen-lockfile
+run_step "Install pinned Playwright Chromium" \
+  ./node_modules/.bin/playwright install chromium
+
+printf 'Orb setup complete.\n'

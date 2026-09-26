@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Make Orb Setup Converge</title>
+    <link rel="stylesheet" href="../assets/lesson.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <div class="kicker">Development Environment · Lesson 0014</div>
+        <h1>Make orb setup converge</h1>
+        <p class="lead">
+          A reliable remote environment does expensive work once, verifies the
+          restored state cheaply, and keeps wake-up repair nearly instantaneous.
+        </p>
+        <div class="meta">Completed slice: Amp orb lifecycle setup</div>
+      </header>
+
+      <h2>Separate installation from wake-up repair</h2>
+      <div class="flow">
+        <div><strong>Setup</strong>Install locked Bun packages and pinned Playwright Chromium.</div>
+        <div><strong>Snapshot</strong>Preserve packages, browser binaries, and caches for fresh orbs.</div>
+        <div><strong>Resume</strong>Repair only expiring connections or authentication; install nothing.</div>
+      </div>
+      <p>
+        Setup is allowed to download dependencies because Amp snapshots its result.
+        Resume runs every time an orb wakes and has a ten-second waiting window, so
+        this repository correctly leaves it as a fast no-op: there are no external
+        databases, tunnels, or credentials to restore.
+      </p>
+
+      <h2>Idempotence turns stale snapshots into an optimization</h2>
+      <pre><code>cold setup: bun install + Chromium download  → about 20 seconds
+warm setup: lockfile check + browser check   → under 1 second
+resume: no repair work                       → immediate</code></pre>
+      <p>
+        <code>bun install --frozen-lockfile</code> makes the lockfile authoritative.
+        Playwright's installer similarly exits quickly when its exact browser build
+        is already cached. Running setup twice proves that a stale snapshot can be
+        refreshed without duplicate configuration or repeated downloads.
+      </p>
+
+      <div class="callout">
+        <strong>Verify across the same process boundary production uses.</strong>
+        The browser was installed correctly, but Playwright's nested web-server shell
+        could not resolve a package-local <code>wrangler</code> through
+        <code>bun run dev</code>. Calling <code>bunx wrangler</code> at that boundary
+        made binary resolution explicit, and the real acceptance suite then proved
+        Chromium, Wrangler, and Durable Objects worked together.
+      </div>
+
+      <h2>Primary source</h2>
+      <ul>
+        <li><a href="https://ampcode.com/docs/orbs">Amp: Orbs</a></li>
+      </ul>
+
+      <footer>
+        Previous: <a href="./0013-replacing-the-client-preserving-the-contract.html">Replace the client, preserve the contract</a>.
+        The reusable invariant is simple: setup may be thorough, but its second run
+        and every resume must be cheap.
+      </footer>
+    </main>
+  </body>
+</html>
