@@ -2,8 +2,8 @@
 
 ## Status
 
-- Current phase: Phase 3 Playable Web UI complete
-- Current focus: test and refine the browser gameplay loop before adding real-time transport
+- Current phase: Phase 3 Playable Web UI complete; React refactor designed
+- Current focus: establish shared transport contracts, then implement the backend foundation and React client concurrently before adding real-time transport
 - Progress:
   - established project goals and collaboration model
   - chose a CLI-first architecture
@@ -68,6 +68,15 @@
   - added 10, 15, 20, and 25-card game lengths and disabled sizes that cannot fit the joined roster
   - made terminal games unmistakable with a full-screen winner or loser result overlay
   - verified drag interaction and a complete networked game through the winner state in a real browser
+  - designed a behavior-preserving React refactor with freedom to evolve the visual design
+  - chose React 19, `useReducer`, Tailwind CSS, selective shadcn/ui composition, Sonner, and dnd-kit
+  - chose React Testing Library for component behavior and Playwright for browser acceptance
+  - chose React Doctor as a blocking `prek` pre-commit hook and kept `agent-browser` optional for exploratory checks
+  - rejected Cloudflare Agents SDK state synchronization because one shared state document would conflict with player-specific private views
+  - chose native Durable Object Hibernation WebSockets for player-specific live updates while keeping gameplay commands on HTTP
+  - chose one-year, game-scoped HttpOnly cookie sessions; browser profiles, rather than tabs, define player identity
+  - chose a public current-game id in `localStorage` as the reload pointer while keeping credentials inaccessible to JavaScript
+  - chose authoritative room revisions and Zod transport schemas to reject stale or malformed views
 
 ## Working Agreement
 
@@ -99,15 +108,16 @@ Prefer the smallest complete, tested slice that advances the playable multiplaye
 
 ## Product Direction
 
-The next product checkpoint will be a playable browser game backed by the
+The next product checkpoint will be a React browser game backed by the
 networked Worker and Durable Object API.
 
 That means:
 
 - the backend still runs on Cloudflare
 - the game still supports multiple players
-- the game still updates live
-- the initial browser client may poll over HTTP before WebSockets are added
+- the game updates live through native Durable Object Hibernation WebSockets
+- gameplay commands remain HTTP requests routed through Worker-to-DO RPC
+- no background polling remains after the WebSocket slice
 
 The local CLI remains a useful diagnostic client, while the browser becomes the
 primary product surface for gameplay iteration.
@@ -121,8 +131,9 @@ That first slice proved:
 - a CLI client can exercise the room through HTTP commands
 - state survives beyond a single request
 
-With the engine and authoritative HTTP backend working, the current focus is a
-minimal playable browser client.
+With the engine, authoritative HTTP backend, and initial browser game working,
+the current focus is migrating the client to React without losing the proven
+gameplay loop.
 
 ## Why Durable Objects Fit
 
@@ -342,9 +353,12 @@ Later, we can revisit whether to keep the snapshot, rely more on event replay, o
 
 The testing plan should match the runtime boundary.
 
-- pure game engine tests should run with `bun test`
-- Worker and Durable Object behavior should first be exercised through local `wrangler dev` smoke tests
-- if needed, we can later add Cloudflare-specific integration testing once the basic shape is stable
+- pure game engine, reducer, component, Worker, and Durable Object tests run with `bun test`
+- React Testing Library covers reducer-driven screens and accessible interactions
+- Playwright is the browser acceptance gate for two-player, drag, reload, privacy, completion, and responsive flows
+- React Doctor runs as a blocking `prek` pre-commit hook on staged React changes
+- `agent-browser` is optional exploratory tooling; if the dev environment cannot launch a browser, browser acceptance runs in a separate Mac Codex task
+- local `wrangler dev` smoke tests continue to verify the Worker/DO runtime boundary
 
 This is important because the pure engine can run anywhere, but Durable Object behavior depends on the Cloudflare runtime.
 
@@ -411,17 +425,51 @@ Build:
 - exact legal-command interaction
 - HTTP polling for opponent turns
 
+## Phase 3A: React Client Refactor
+
+Goal: replace the imperative browser client with a maintainable React app while preserving the core gameplay UX.
+
+Build:
+
+- React 19 app under `src/web/` with one top-level reducer
+- Bun HTML and Tailwind build into ignored `dist/`
+- Wrangler custom build hook and Static Assets deployment from `dist/`
+- Tailwind v4 theme with an evolutionary dark-green tabletop design
+- selective shadcn/ui composition for conventional controls and dialogs
+- custom domain components for cards, piles, player areas, legal targets, and drag overlays
+- Sonner notifications and dnd-kit pointer interaction
+- accessible drag-or-select keyboard interaction
+- Zod-validated API client and room-revision reconciliation
+- public current-game id in `localStorage`; no credential in client storage
+
+## Phase 3B: Session and Transport Foundation
+
+Goal: strengthen browser identity and transport contracts without breaking the current playable client during migration.
+
+Build:
+
+- monotonically increasing persisted room revision on accepted join, start, and command transitions
+- revision included in every player-specific view
+- one-year, game-scoped, Secure, SameSite=Strict, HttpOnly player-session cookie
+- temporary bearer-token compatibility until the React cutover is complete
+- waiting-room leave removes the seat and revokes the cookie
+- active/finished exit clears only the browser's current-game pointer and preserves reconnect access
+- Zod validation for HTTP requests, responses, API errors, and WebSocket envelopes
+
 ## Phase 4: Real-Time Transport
 
 Goal: make multiplayer updates live.
 
 Build:
 
-- WebSocket upgrade route
-- client registration in the DO
-- broadcast on game state changes
-- reconnect support
-- if it stays manageable, use the DO hibernation WebSocket API so the project teaches a Cloudflare-specific real-time pattern
+- Worker-validated, cookie-authenticated WebSocket upgrade route
+- native Durable Object Hibernation WebSocket acceptance
+- resolved player identity in serialized per-connection attachments
+- player-specific view projection after state is persisted
+- client reconnect with capped exponential backoff and jitter
+- authenticated HTTP snapshot after reconnect and revision-based reconciliation
+- manual refresh while disconnected; no fallback polling
+- removal of transitional bearer-token support
 
 ## Phase 5: Hardening
 
@@ -441,6 +489,23 @@ Build:
 - The user sets product direction and weighs in at meaningful architecture or game-rule forks.
 - Each completed implementation slice ends with a concise technical `$teach` artifact.
 - Explicit `$teach` requests pause delivery for a deeper lesson grounded in the current code.
+- After a shared contract/scaffolding checkpoint, Phase 3A and Phase 3B run concurrently in separate Codex tasks and worktrees using GPT-5.6 Sol with medium reasoning.
+- The main task owns shared schemas, dependency and lockfile setup, Wrangler configuration, integration, and the later WebSocket slice.
+
+## React Refactor Acceptance Contract
+
+- Preserve create, join, waiting, game-length selection, start, refresh/reconnect, copy-code, exit, and completion flows.
+- Preserve waiting-room join order, first-turn labeling, two-player minimum, all-player start permission, and deck-feasible 5/10/15/20/25/30-card choices.
+- Show the viewer's hand, stock top/count, and four discards; opponents' public turn, stock, and discard information; and all shared build/deck/completion information.
+- Display both wild identity and its assigned build sequence value.
+- Enable and submit only exact server-issued Legal Commands; prevent duplicate submissions and retain the last valid view after rejected or stale commands.
+- Support mouse and touch dragging, cancellation and outside-drop no-ops, legal-target highlighting, and scrolling outside draggable cards.
+- Support keyboard selection: activate a card, focus legal destinations, submit with Enter/Space, and cancel with Escape while restoring focus.
+- Keep the Canonical Game State server-only and send a distinct Player View to each authenticated connection.
+- Keep player credentials out of URLs, DOM, logs, `localStorage`, and browser JavaScript.
+- Expose connecting, connected, reconnecting, and offline states; never automatically retry a gameplay command.
+- Ensure all connected players receive the finished revision and commands become disabled at game completion.
+- At named phone and desktop Playwright viewports, keep all four build/discard piles, full hand, opponent roster, header controls, and winner dialog reachable.
 
 ## Important Cloudflare Lesson To Reinforce
 
@@ -462,21 +527,18 @@ For this project, a good mental shortcut is:
 
 ## Immediate Next Step
 
-The next concrete implementation step is to continue playtesting the revised
-browser workflow, then replace polling with real-time updates:
+The next concrete implementation step is a short shared contract/scaffolding checkpoint:
 
-- run complete short games between two people and capture the next usability gaps
-- add keyboard-accessible direct manipulation without reintroducing the old action tray
-- add a Worker WebSocket upgrade route and authenticate the connection
-- register sockets with the game Durable Object and broadcast after persisted moves
-- preserve HTTP commands and player-specific `GameView` projection as the authority boundary
+- add Zod schemas and inferred transport types
+- fix endpoint, cookie, revision, and error semantics
+- add React/Tailwind/shadcn/testing dependencies and update the lockfile once
+- add the Bun web build entrypoint and Wrangler build/output configuration
+- add canonical waiting, playing, finished, and stale Player View fixtures
 
-Supporting scaffolding now exists for the completed Phase 0 spike:
+After that checkpoint, create two separate worktrees and Codex tasks:
 
-- `src/shared/room-state.ts`
-- `src/worker/index.ts`
-- `src/worker/game-room-do.ts`
-- `src/tests/game-room-do.test.ts`
-- `src/cli/index.ts`
+1. Phase 3B backend foundation, owning `src/worker/` and backend tests
+2. Phase 3A React client, owning `src/web/` and component tests
 
-That gives us a working reference boundary for the Durable Object spike, so the next learning-heavy work can stay focused on pure game rules.
+Merge both branches, complete the integration and Playwright acceptance pass,
+then implement Phase 4 Hibernation WebSockets sequentially.
